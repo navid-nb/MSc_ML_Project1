@@ -1,0 +1,1 @@
+See diagrams/ for ERD and component diagrams (mermaid suggested).

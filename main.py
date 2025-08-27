@@ -4,17 +4,17 @@
 
 from __future__ import annotations
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import yfinance as yf
 from datetime import date
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.naive_bayes import GaussianNB
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import make_pipeline
 
+import numpy as np
+import pandas as pd
+import streamlit as st
+import yfinance as yf
 from backtesting import Backtest, Strategy
+from sklearn.naive_bayes import GaussianNB
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.tree import DecisionTreeClassifier
 
 # ---------------------- Page setup ----------------------
 st.set_page_config(page_title="Model Backtester", layout="wide")
@@ -22,18 +22,34 @@ st.title("Model Backtester (backtesting.py + Streamlit)")
 
 # ---------------------- Session state -------------------
 for k, v in {
-    "data": None,          # validated OHLCV dataframe
-    "data_meta": {},       # {'ticker':..., 'interval':..., 'source': 'yfinance'|'csv'}
+    "data": None,  # validated OHLCV dataframe
+    "data_meta": {},  # {'ticker':..., 'interval':..., 'source': 'yfinance'|'csv'}
 }.items():
     st.session_state.setdefault(k, v)
 
 # ---------------------- Helpers -------------------------
-YF_INTERVALS = ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
+YF_INTERVALS = [
+    "1m",
+    "2m",
+    "5m",
+    "15m",
+    "30m",
+    "60m",
+    "90m",
+    "1h",
+    "1d",
+    "5d",
+    "1wk",
+    "1mo",
+    "3mo",
+]
+
 
 def _looks_like_field_names(level_values) -> bool:
     lv = [str(x).strip().lower() for x in level_values]
     keys = {"open", "high", "low", "close", "adj close", "volume"}
     return any(k in lv for k in keys)
+
 
 def normalize_ohlcv(df: pd.DataFrame, ticker_sym: str | None = None) -> pd.DataFrame:
     """
@@ -85,10 +101,18 @@ def normalize_ohlcv(df: pd.DataFrame, ticker_sym: str | None = None) -> pd.DataF
     out.index.name = "Date"
     return out
 
+
 def resample_ohlcv(df: pd.DataFrame, freq: str) -> pd.DataFrame:
-    agg = {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
+    agg = {
+        "Open": "first",
+        "High": "max",
+        "Low": "min",
+        "Close": "last",
+        "Volume": "sum",
+    }
     rs = df.resample(freq).agg(agg).dropna(how="any")
     return rs
+
 
 def ta_rsi(s: pd.Series, n: int = 14) -> pd.Series:
     delta = s.diff()
@@ -98,24 +122,28 @@ def ta_rsi(s: pd.Series, n: int = 14) -> pd.Series:
     rs = gain / loss.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
 
+
 def make_features(df: pd.DataFrame) -> pd.DataFrame:
     feats = pd.DataFrame(index=df.index)
     close = df["Close"]
-    feats["ret_1"]  = close.pct_change()
-    feats["ret_5"]  = close.pct_change(5)
+    feats["ret_1"] = close.pct_change()
+    feats["ret_5"] = close.pct_change(5)
     feats["ret_20"] = close.pct_change(20)
     feats["rsi_14"] = ta_rsi(close, 14)
-    feats["ma_10"]  = close.rolling(10).mean() / close - 1
+    feats["ma_10"] = close.rolling(10).mean() / close - 1
     feats["vol_10"] = feats["ret_1"].rolling(10).std()
-    feats["y"]      = np.sign(close.shift(-1) / close - 1).replace(0, 1)
+    feats["y"] = np.sign(close.shift(-1) / close - 1).replace(0, 1)
     return feats.dropna()
+
 
 # ---------------------- STEP 1: Load & Validate ----------------------
 st.header("Step 1 — Choose Frequency and Date Range, then Load Data")
 
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    instrument_type = st.selectbox("Instrument", ["Stock", "ETF", "Future", "Option", "Crypto", "Other"], index=0)
+    instrument_type = st.selectbox(
+        "Instrument", ["Stock", "ETF", "Future", "Option", "Crypto", "Other"], index=0
+    )
 with c2:
     ticker = st.text_input("Symbol (e.g., AAPL, SPY, BTC-USD)", value="AAPL").strip()
 with c3:
@@ -133,21 +161,30 @@ st.markdown("Or upload **OHLCV CSV** (`Datetime/Open/High/Low/Close[/Adj Close]/
 uploaded = st.file_uploader("Upload CSV (optional)", type=["csv"])
 
 csv_resample = st.checkbox("Resample uploaded CSV to a frequency", value=False)
-csv_freq = st.text_input("CSV resample freq (e.g., 1D, 1H, 5T)", value="1D") if csv_resample else None
+csv_freq = (
+    st.text_input("CSV resample freq (e.g., 1D, 1H, 5T)", value="1D") if csv_resample else None
+)
 
 st.caption(
     "Notes: yfinance intraday has limits (e.g., 1m ~ last 30 days). We’ll try your dates but may need to narrow.\n"
     "CSV resampling aggregates OHLCV properly (first/max/min/last/sum)."
 )
 
+
 def load_from_yf(sym: str, start_d: date, end_d: date, itv: str) -> pd.DataFrame:
     df = yf.download(
-        sym, start=str(start_d), end=str(end_d), interval=itv,
-        auto_adjust=False, progress=False, group_by="ticker",
+        sym,
+        start=str(start_d),
+        end=str(end_d),
+        interval=itv,
+        auto_adjust=False,
+        progress=False,
+        group_by="ticker",
     )
     if df is None or len(df) == 0:
         raise ValueError("No data returned (symbol/interval/date range may be unsupported).")
     return normalize_ohlcv(df, ticker_sym=sym)
+
 
 def load_from_csv(file, resample_to: str | None) -> pd.DataFrame:
     raw = pd.read_csv(file)
@@ -169,31 +206,46 @@ def load_from_csv(file, resample_to: str | None) -> pd.DataFrame:
             cols.get("high", "High"): "High",
             cols.get("low", "Low"): "Low",
             cols.get("close", "Close"): "Close",
-            cols.get("adj close", "Adj Close"): "Adj Close" if "adj close" in cols else "Adj Close",
+            cols.get("adj close", "Adj Close"): (
+                "Adj Close" if "adj close" in cols else "Adj Close"
+            ),
             cols.get("volume", "Volume"): "Volume",
         }
     )
-    keep = [c for c in ["Date", "Open", "High", "Low", "Close", "Adj Close", "Volume"] if c in raw.columns]
+    keep = [
+        c
+        for c in ["Date", "Open", "High", "Low", "Close", "Adj Close", "Volume"]
+        if c in raw.columns
+    ]
     df = raw[keep].dropna(subset=["Date"]).set_index("Date")
     df.index = pd.to_datetime(df.index, utc=True, errors="coerce").tz_convert(None)
     df = normalize_ohlcv(df)
-    df = df.loc[str(start_date):str(end_date)]
+    df = df.loc[str(start_date) : str(end_date)]
     if resample_to:
         df = resample_ohlcv(df, resample_to)
     return df
+
 
 if pull_btn:
     try:
         if uploaded is not None:
             data = load_from_csv(uploaded, csv_freq if csv_resample else None)
             st.session_state.data = data
-            st.session_state.data_meta = {"source": "csv", "interval": csv_freq if csv_resample else "native", "ticker": "(CSV)"}
+            st.session_state.data_meta = {
+                "source": "csv",
+                "interval": csv_freq if csv_resample else "native",
+                "ticker": "(CSV)",
+            }
         else:
             if not ticker:
                 raise ValueError("Ticker is empty.")
             data = load_from_yf(ticker, start_date, end_date, interval)
             st.session_state.data = data
-            st.session_state.data_meta = {"source": "yfinance", "interval": interval, "ticker": ticker}
+            st.session_state.data_meta = {
+                "source": "yfinance",
+                "interval": interval,
+                "ticker": ticker,
+            }
 
         st.success("Data loaded and validated ✅")
     except Exception as e:
@@ -234,7 +286,10 @@ data = st.session_state.data  # local alias
 
 c1, c2, c3 = st.columns(3)
 with c1:
-    model_name = st.selectbox("Model", ["Buy & Hold (benchmark)", "Decision Tree (clf)", "Naive Bayes (Gaussian)"])
+    model_name = st.selectbox(
+        "Model",
+        ["Buy & Hold (benchmark)", "Decision Tree (clf)", "Naive Bayes (Gaussian)"],
+    )
 with c2:
     bt_start = st.date_input("Backtest Start", value=max(date(2019, 1, 1), data.index.min().date()))
 with c3:
@@ -246,12 +301,13 @@ with c4:
 with c5:
     run_btn = st.button("Run Backtest", type="primary")
 
+
 def compute_signal(model_name: str, feats: pd.DataFrame) -> pd.Series:
     split_idx = int(len(feats) * 0.7)
     X = feats.drop(columns=["y"])
     y = (feats["y"] > 0).astype(int)
     X_train, y_train = X.iloc[:split_idx], y.iloc[:split_idx]
-    X_test,  y_test  = X.iloc[split_idx:], y.iloc[split_idx:]
+    X_test, _ = X.iloc[split_idx:], y.iloc[split_idx:]
     index_test = X_test.index
 
     if model_name == "Buy & Hold (benchmark)":
@@ -270,18 +326,22 @@ def compute_signal(model_name: str, feats: pd.DataFrame) -> pd.Series:
     sig.index = pd.to_datetime(sig.index).tz_localize(None)
     return sig
 
+
 def fmt_pct(x):
     return f"{x:.2f}%"
+
 
 def fmt_d(x):
     return f"{int(x)}"
 
+
 def fmt_f(x):
     return f"{x:,.2f}"
 
+
 # Only run backtest when clicked; keep preview on screen always
 if run_btn:
-    bt_range = data.loc[str(bt_start):str(bt_end)].copy()
+    bt_range = data.loc[str(bt_start) : str(bt_end)].copy()
     if bt_range.empty or len(bt_range) < 50:
         st.error("Not enough rows in the selected backtest range. Choose a wider range.")
     else:
@@ -297,7 +357,7 @@ if run_btn:
             common = bt_df.index.intersection(signal.index)
             bt_df.loc[common, "signal"] = signal.reindex(common).to_numpy()
 
-            bt_slice = bt_df.loc[signal.index.min(): signal.index.max()].copy()
+            bt_slice = bt_df.loc[signal.index.min() : signal.index.max()].copy()
 
             try:
                 assert not isinstance(bt_slice.columns, pd.MultiIndex)
@@ -306,11 +366,14 @@ if run_btn:
             except AssertionError as e:
                 st.error(f"Backtest precondition failed: {e}")
             else:
+
                 class SignalStrategy(Strategy):
                     signal_threshold = 0.0
                     allow_short = True
+
                     def init(self):
                         self.signal = self.I(lambda: self.data.df["signal"].values)
+
                     def next(self):
                         s = self.signal[-1]
                         if s > self.signal_threshold:
@@ -333,7 +396,7 @@ if run_btn:
                     cash=cash,
                     commission=0.0005,
                     exclusive_orders=True,
-                    finalize_trades=True,   # <-- closes open trades for stats
+                    finalize_trades=True,  # <-- closes open trades for stats
                 )
 
                 stats = bt.run()
@@ -343,13 +406,15 @@ if run_btn:
                 st.subheader("Summary stats")
                 # stats is a pandas Series; pull common keys defensively
                 # Keys vary by backtesting.py version; use .get with defaults
-                total_return = stats.get('Return [%]') or stats.get('Return (Ann.) [%]') or 0.0
-                sharpe = stats.get('Sharpe Ratio') or stats.get('Sharpe') or 0.0
-                win_rate = stats.get('Win Rate [%]') or 0.0
-                max_dd = stats.get('Max. Drawdown [%]') or stats.get('Max Drawdown [%]') or 0.0
-                trades = stats.get('Trades') or 0
-                equity_final = stats.get('Equity Final [$]') or stats.get('Equity Final [$ ]') or 0.0
-                exposure = stats.get('Exposure [%]') or 0.0
+                total_return = stats.get("Return [%]") or stats.get("Return (Ann.) [%]") or 0.0
+                sharpe = stats.get("Sharpe Ratio") or stats.get("Sharpe") or 0.0
+                win_rate = stats.get("Win Rate [%]") or 0.0
+                max_dd = stats.get("Max. Drawdown [%]") or stats.get("Max Drawdown [%]") or 0.0
+                trades = stats.get("Trades") or 0
+                equity_final = (
+                    stats.get("Equity Final [$]") or stats.get("Equity Final [$ ]") or 0.0
+                )
+                exposure = stats.get("Exposure [%]") or 0.0
 
                 cA, cB, cC, cD = st.columns(4)
                 with cA:

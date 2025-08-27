@@ -1,0 +1,16 @@
+[project]
+name = "backtester"
+version = "0.1.0"
+description = "Modular backtesting app with Streamlit UI and console runner"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+
+[tool.ruff]
+line-length = 100

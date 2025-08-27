@@ -1,0 +1,9 @@
+default_source: "yfinance"   # or "csv"
+yfinance:
+  default_symbol: "AAPL"
+  default_interval: "1d"
+  start: "2019-01-01"
+  end: null
+csv:
+  resample: false
+  resample_freq: "1D"
