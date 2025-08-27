@@ -10,7 +10,7 @@ run-app:
 	PYTHONPATH=$(PYTHONPATH) streamlit run src/backtester/app.py
 
 run-cli:
-	$(PY) src/backtester/main.py --help
+	PYTHONPATH=$(PYTHONPATH) $(PY) src/backtester/main.py --help
 
 lint:
 	ruff check --fix .
