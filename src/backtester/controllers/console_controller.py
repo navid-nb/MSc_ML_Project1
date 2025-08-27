@@ -1,7 +1,7 @@
-"""Console controller for CLI runs."""
+"""Console controller for CLI runs (evaluate() only)."""
 
 import argparse
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 import pandas as pd
 
@@ -9,14 +9,10 @@ from backtester.features.engineer import DefaultFeatureEngineer
 from backtester.models.buy_hold import BuyHoldModel
 from backtester.models.decision_tree import DecisionTreeModel
 from backtester.models.gaussian_nb import GaussianNBModel
+from backtester.pipelines.evaluate_pipeline import EvalConfig, evaluate
 from backtester.providers.adapter_utils import resample_ohlcv
 from backtester.providers.csv_asset import CSVAsset
 from backtester.providers.yfinance_asset import YFinanceAsset
-from backtester.services.backtest_engine import (
-    BacktestEngine,
-    ExecConfig,
-    TrainTestConfig,
-)
 from backtester.utils.io import read_csv_ohlcv
 
 
@@ -29,8 +25,8 @@ def _model_factory(name: str):
     return GaussianNBModel()
 
 
-def run_cli(args: argparse.Namespace) -> Tuple[pd.Series, Dict[str, Any], Any]:
-    """Execute a backtest from CLI arguments."""
+def run_cli(args: argparse.Namespace) -> Dict[str, Any]:
+    """Execute an evaluation from CLI arguments and return stats."""
     start = pd.to_datetime(args.start)
     end = pd.to_datetime(args.end) if args.end else None
 
@@ -45,15 +41,15 @@ def run_cli(args: argparse.Namespace) -> Tuple[pd.Series, Dict[str, Any], Any]:
         if args.freq:
             df = resample_ohlcv(df, args.freq)
 
-    # Run backtest
-    engine = BacktestEngine(DefaultFeatureEngineer())
+    # Evaluate
     model = _model_factory(args.model)
-    return engine.run(
-        df,
+    stats = evaluate(
+        ohlcv=df,
+        feature_engineer=DefaultFeatureEngineer(),
         model=model,
-        tt_cfg=TrainTestConfig(split_ratio=args.split),
-        ex_cfg=ExecConfig(cash=args.cash),
+        cfg=EvalConfig(split_ratio=args.split, cash=args.cash),
     )
+    return stats
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

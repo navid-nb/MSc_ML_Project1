@@ -9,7 +9,7 @@ def main() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
 
-    signal, stats, fig = run_cli(args)
+    stats = run_cli(args)
 
     core = extract_core_metrics(stats)
     print("\n=== Summary Stats ===")
@@ -26,6 +26,7 @@ def main() -> None:
 
     if args.save_equity:
         eq = stats.get("_equity_curve")
+
         if eq is not None:
             import pandas as pd
 
@@ -33,7 +34,7 @@ def main() -> None:
                 eq.to_csv(args.save_equity)
             else:
                 pd.Series(eq).to_csv(args.save_equity)
-            print(f"Saved equity curve to {args.save_equity}")
+                print(f"Saved equity curve to {args.save_equity}")
 
 
 if __name__ == "__main__":

@@ -435,7 +435,7 @@ if run_btn:
 
                 # 1) Try to render whatever backtesting.py returned as a Bokeh object
                 try:
-                    st.bokeh_chart(fig, use_container_width=True)
+                    st.bokeh_chart(fig)
                     rendered = True
                 except Exception:
                     rendered = False
@@ -446,7 +446,7 @@ if run_btn:
                         import matplotlib.figure as mpl_figure
 
                         if isinstance(fig, mpl_figure.Figure):
-                            st.pyplot(fig, use_container_width=True)
+                            st.pyplot(fig)
                             rendered = True
                     except Exception:
                         pass
@@ -467,7 +467,7 @@ if run_btn:
                             ax.set_title("Equity Curve (fallback)")
                             ax.set_xlabel("Time")
                             ax.set_ylabel("Equity")
-                            st.pyplot(fig_fallback, use_container_width=True)
+                            st.pyplot(fig_fallback)
                             rendered = True
                     except Exception:
                         pass

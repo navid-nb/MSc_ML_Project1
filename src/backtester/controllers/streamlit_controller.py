@@ -7,15 +7,10 @@ from backtester.features.engineer import DefaultFeatureEngineer
 from backtester.models.buy_hold import BuyHoldModel
 from backtester.models.decision_tree import DecisionTreeModel
 from backtester.models.gaussian_nb import GaussianNBModel
+from backtester.pipelines.evaluate_pipeline import EvalConfig, evaluate
 from backtester.providers.csv_asset import CSVAsset
 from backtester.providers.yfinance_asset import YFinanceAsset
-from backtester.services.backtest_engine import (
-    BacktestEngine,
-    ExecConfig,
-    TrainTestConfig,
-)
 from backtester.services.metrics import extract_core_metrics
-from backtester.services.plotter_bokeh import BokehPlotter
 from backtester.services.plotter_mpl import MatplotlibPlotter
 from backtester.utils.io import read_csv_ohlcv
 
@@ -39,47 +34,36 @@ def load_data(source: str, symbol: str, start, end, interval: str, uploaded) -> 
         raise ValueError("Upload a CSV or switch to yfinance.")
     raw = read_csv_ohlcv(uploaded)
     asset = CSVAsset("(CSV)", raw)
-    df = asset.load(pd.to_datetime(start), pd.to_datetime(end) if end else None, None)
-    # Optional resample: controlled by checkbox in app
-    return df
+    return asset.load(pd.to_datetime(start), pd.to_datetime(end) if end else None, None)
 
 
-def render_chart(fig, stats: dict) -> None:
-    """Try bokeh then mpl then fallback equity curve."""
-    rendered = False
+def render_chart_from_stats(stats: dict) -> None:
+    """Render an equity chart using matplotlib, based on evaluate() stats."""
+    fig = MatplotlibPlotter().render(backtesting_fig=None, stats=stats)
     try:
-        st.bokeh_chart(BokehPlotter().render(fig, stats), use_container_width=True)
-        rendered = True
-    except Exception:
-        pass
-    if not rendered:
-        try:
-            fig2 = MatplotlibPlotter().render(fig, stats)
-            import matplotlib.figure as mpl_figure
+        import matplotlib.figure as mpl_figure  # noqa
 
-            if isinstance(fig2, mpl_figure.Figure):
-                st.pyplot(fig2, use_container_width=True)
-                rendered = True
-        except Exception:
-            pass
-    if not rendered:
-        st.warning("Could not render chart; install `bokeh` or ensure matplotlib is available.")
+        if hasattr(fig, "__class__") and fig.__class__.__name__ == "Figure":
+            st.pyplot(fig)
+        else:
+            st.warning("Could not render chart; ensure matplotlib is available.")
+    except Exception:
+        st.warning("Could not render chart; ensure matplotlib is available.")
 
 
 def run_workflow(df: pd.DataFrame, model_name: str, start, end, cash: float, split: float):
-    """Run features → model → backtest and render results."""
+    """Run features → model → vectorized evaluation and render results."""
     bt_range = df.loc[str(start) : str(end)].copy()
     if bt_range.empty or len(bt_range) < 50:
         st.error("Not enough rows in backtest range.")
         return
 
-    engine = BacktestEngine(DefaultFeatureEngineer())
     model = _model_factory(model_name)
-    signal, stats, fig = engine.run(
-        bt_range,
+    stats = evaluate(
+        ohlcv=bt_range,
+        feature_engineer=DefaultFeatureEngineer(),
         model=model,
-        tt_cfg=TrainTestConfig(split_ratio=split),
-        ex_cfg=ExecConfig(cash=float(cash)),
+        cfg=EvalConfig(split_ratio=split, cash=float(cash)),
     )
 
     from backtester.views.components import metrics_grid
@@ -87,7 +71,7 @@ def run_workflow(df: pd.DataFrame, model_name: str, start, end, cash: float, spl
     metrics_grid(extract_core_metrics(stats))
 
     st.subheader("Equity & Trades")
-    render_chart(fig, stats)
+    render_chart_from_stats(stats)
 
     with st.expander("What exactly did we test?", expanded=True):
         st.markdown(
@@ -101,6 +85,6 @@ def run_workflow(df: pd.DataFrame, model_name: str, start, end, cash: float, spl
 1) Feature engineering on selected window (returns, RSI-14, MA-10, volatility).  
 2) Temporal split: first {int(split*100)}% → train, rest → test.  
 3) Model outputs P(up) for each test bar.  
-4) Trading rule: P(up) ≥ 0.5 → long; else short; finalize open trades at end.
+4) Trading rule: P(up) ≥ 0.5 → long; else short; commissions on flips.
 """
         )
