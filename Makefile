@@ -11,9 +11,3 @@ run-app:
 
 run-cli:
 	PYTHONPATH=$(PYTHONPATH) $(PY) src/backtester/main.py --help
-
-lint:
-	ruff check --fix .
-	isort . --profile black
-	black .
-

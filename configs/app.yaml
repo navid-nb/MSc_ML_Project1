@@ -1,5 +1,6 @@
 streamlit:
   page_title: "Model Backtester (OOP)"
   layout: "wide"
+
 ui:
   show_docs_link: false

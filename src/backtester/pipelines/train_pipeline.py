@@ -2,8 +2,6 @@
 
 This module performs a simple temporal train/test split, fits a model on the
 train slice, and reports basic classification metrics on both train/test sets.
-
-It does not persist artifacts by default (you can extend with joblib/MLflow).
 """
 
 from dataclasses import dataclass

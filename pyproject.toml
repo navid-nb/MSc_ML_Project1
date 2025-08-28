@@ -1,7 +1,7 @@
 [project]
-name = "backtester"
+name = "MATH60610A-portfolio-backtesting"
 version = "0.1.0"
-description = "Modular backtesting app with Streamlit UI and console runner"
+description = "simple backtesting app"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
