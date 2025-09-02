@@ -19,25 +19,24 @@
     \maketitle
 
     \section*{Abstract}
-    This strategy adds a machine-learning layer on top of an existing portfolio. It looks across a universe of 500 large U.S. stocks, forecasting near-term moves and turning those forecasts into clear buy, sell, or hold signals. The system can start from your current holdings and adjust positions daily, tilting toward stocks expected to perform better and scaling back or shorting those likely to lag.
+    This strategy adds a machine-learning layer on top of an existing portfolio and transforms raw market and fundamental data into daily trading actions. We start with a universe of 500 large U.S. stocks, each with over five hundred features drawn from prices, volumes, technical signals, and WRDS fundamentals. These inputs are cleaned, aligned to when they become public, and then compressed through regularization, subset selection, or factor reduction so that only the most informative features remain.
     \medskip
-    Trading is designed to be practical: signals are updated once per day (by default), but can also run at weekly or finer intervals depending on costs and preferences. The approach can operate fully automatically, or simply provide recommendations that you review and approve.
+    On this reduced set, we train two types of predictive models. Linear regression and its regularized forms (ridge, lasso, elastic-net) forecast continuous next-period returns, while logistic regression is used to classify the probability of an upward or downward move. Forecasts are updated on a rolling basis, ensuring the system adapts as market conditions change and discards signals that stop working.
     \medskip
-    The predictive engine is based on \textbf{regularized linear regression models} (ridge, lasso, elastic-net). These are linear in the way they combine features, which makes them stable, interpretable, and fast to retrain. Nonlinear behavior comes from the features we feed in---such as moving averages, oscillators, and squared terms---so the model captures complex patterns while staying transparent. This balance avoids the overfitting risk of more opaque models like deep neural networks, while still adapting to new data through rolling retraining.
+    The resulting predictions flow into a clear trading rule that weighs expected return against costs and uncertainty. If the edge is strong enough, the model issues buy, sell, or hold instructions and scales the size of each trade to match its conviction, with exits managed by time stops, volatility-based stop-losses, and take-profits. The framework generalizes across all large U.S. stocks and can be applied to existing portfolios, producing daily adjustments that tilt toward likely winners and away from laggards.
     \medskip
-    The model retrains on a rolling basis, so it adapts as markets change and drops signals that stop working. While it is built for the largest 500 U.S. names, the framework extends to other liquid stocks as long as sufficient data is available.
-    \medskip
-    The goal is simple: enhance returns and smooth risk by adding a disciplined, transparent decision layer. Every trade is backed by a forecast, cost check, and risk limit, with full reporting on equity curves, Sharpe ratios, drawdowns, and a trade log that shows exactly how gains and losses occur.
+    The end goal is simple: generate more consistent risk-adjusted returns by adding a disciplined, transparent layer on top of current holdings. Each trade is traceable to a forecast, a cost check, and a risk control, with results reported in equity curves, Sharpe ratios, drawdowns, and a full trade log.
 
     \section*{Overview}
-    This document lays out a practical trading workflow that connects machine-learning forecasts to clear trading rules. We focus on a universe of roughly 500 U.S. stocks, use daily bars, and consider multi-day horizons $n \in \{1,5,20\}$. The aim is simple: trade only when the expected benefit, after costs and risk, justifies it. We incorporate the following techniques demonstrated in the course material:
-    \begin{itemize}[leftmargin=1.25em]
-        \item \textbf{Linear/Multivariate Regression \& HAC} (Code: \textbf{Ch.~3 -- Linear regression}): OLS/MLR on lagged returns and technicals; HAC coefs.
-        \item \textbf{Cross-Validation Schemes} (Code: \textbf{Ch.~5 -- Cross-validation}): LOOCV, 10-fold, and time-aware \emph{timeslice} (expanding/sliding).
-        \item \textbf{Regularization} (Code: \textbf{Ch.~6 -- Regularization}): ridge, lasso, elastic-net via \texttt{glmnet} with standardized features and time-slice CV.
-        \item \textbf{Subset Selection} (Code: \textbf{Ch.~6 -- Subset selection}): exhaustive/forward/backward (\texttt{leaps}), selection by Adj-$R^2$/BIC.
-        \item \textbf{Stock Picking Portfolio} (Code: \textbf{Ch.~3 case study} \& \textbf{Ch.~6 Nasdaq lasso}): long top-$k$ predicted, short bottom-$k$.
-    \end{itemize}
+    This document presents a trading workflow that connects machine-learning forecasts to clear investment rules, following the end-to-end sequence from raw data to portfolio returns. We begin with daily OHLCV data and corporate actions, adjusted so that returns reflect investor experience, combined with fundamental variables from WRDS Compustat that are timestamped to when they become publicly available. To avoid look-ahead bias, any feature not observable at decision time is shifted or dropped.
+    \medskip
+    The raw feature set for each stock exceeds five hundred variables. To control variance and improve stability, we reduce dimensionality through regularization methods such as lasso and elastic-net, through subset selection (exhaustive, forward, backward), and when needed through factor compression such as principal components. This ensures that only predictive, non-redundant inputs remain.
+    \medskip
+    On this reduced design matrix, regression models forecast continuous lead returns, while classification models estimate the probability of up versus down moves. These forecasts are evaluated through robust cross-validation schemes, including leave-one-out, k-fold, and time-slice designs with expanding or sliding windows. Rolling retraining ensures the models adapt to changing regimes.
+    \medskip
+    Predictions then feed into a utility function that compares the expected edge against transaction costs and risk. Only when the net benefit is positive do we generate a trading signal. Position sizing grows with forecast strength but is capped for risk control. Exits are determined by horizon-based time stops, stop-losses tied to volatility, and take-profit rules.
+    \medskip
+    Finally, the individual stock signals are aggregated at the portfolio level. We compare equal-weight, mean–variance, and long–short selection strategies where the system goes long the best predicted performers and short the worst. Performance is tracked by cumulative returns, Sharpe and modified Sharpe ratios, turnover, and drawdowns, with full traceability through a trade blotter and reproducible configurations. This pipeline, grounded in the techniques of regression, classification, and dimensionality reduction, offers a disciplined and adaptive way to enhance existing U.S. equity portfolios.
 
     \paragraph{Universe, cadence, and data discipline.}
     We operate on the daily close. Market data are OHLCV; corporate actions (splits, dividends) are applied so returns reflect investor experience. Fundamentals (e.g., WRDS Compustat) are timestamped by public availability with a conservative delay; any feature that is not available at decision time is shifted or dropped (no look-ahead), as in Ch.~3.
