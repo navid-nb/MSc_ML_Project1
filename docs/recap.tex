@@ -1,0 +1,247 @@
+%! Author = wboughattas
+%! Date = 2025-09-01
+
+% Preamble
+\documentclass[11pt]{article}
+
+% Packages
+\usepackage{amsmath}
+
+% Document
+\begin{document}
+    \section{Recap: Finance and Machine Learning Primer}
+
+    This section provides a self-contained guide to the finance and ML terminology used in the plan.
+    It is written in plain English, with definitions and small numerical examples.
+    Readers may skim headings they know and focus on unfamiliar ones.
+
+    \subsection{The Absolute Basics}
+
+    \paragraph{Candles, Bars, OHLCV.}
+    A \emph{bar} or \emph{candle} is one time bucket of market data (e.g.\ 1 minute, 1 day).
+    OHLCV stands for \emph{Open, High, Low, Close, Volume}.
+    \begin{itemize}
+        \item Example: a 1-minute bar may have Open=100.00, High=100.20, Low=99.95, Close=100.10, Volume=50{,}000.
+    \end{itemize}
+
+    \paragraph{Horizon $n$.}
+    The forecast horizon. If $n=5$ bars on 1-minute data, we are predicting 5 minutes ahead.
+
+    \paragraph{Returns (simple vs.\ log).}
+    \begin{align*}
+        R &= \frac{P_{t+n} - P_t}{P_t} \quad \text{(simple return)} \\
+        r &= \ln\!\left(\frac{P_{t+n}}{P_t}\right) \quad \text{(log return)}
+    \end{align*}
+    For small moves, $r \approx R$. Log returns are preferred because they add over time and work well in statistics.
+    Example: $P_t=100$, $P_{t+n}=101 \Rightarrow R=1\%$.
+
+    \paragraph{Basis Points (bps).}
+    1 bp = 0.01\% = 0.0001 in decimal.
+    Examples: 5 bps = 0.05\%, 25 bps = 0.25\%.
+
+    \subsection{Uncertainty, Risk, and ``Edge''}
+
+    \paragraph{Expected Return $\mu$ and Uncertainty $\sigma$.}
+    \begin{itemize}
+        \item $\mu_n(t)$: model’s expected log return over next $n$ bars.
+        \item $\sigma_n(t)$: predicted uncertainty (often a standard deviation).
+        \item Example: for next 5 bars, $\mu=+15$ bps, $\sigma=20$ bps.
+    \end{itemize}
+
+    \paragraph{Edge.}
+    Expected gain after accounting for costs and noise.
+    \[
+        U_n(t) = |\mu_n(t)| - c(t) - \kappa \cdot \sigma_n(t),
+    \]
+    where $c(t)$ = trading cost, $\kappa$ = risk buffer coefficient.
+    Absolute value ensures both positive (long) and negative (short) predictions can be attractive if large enough.
+
+    \paragraph{Intuition.}
+    If the predicted move barely beats costs, skip it. Trade only when the edge is comfortably above costs and noise.
+
+    \subsection{Trading Costs and Execution}
+
+    \paragraph{Commission.}
+    Broker fee per trade, often quoted in bps or cents/share.
+
+    \paragraph{Spread and Slippage.}
+    \begin{itemize}
+        \item Bid--ask spread: buyers bid 99.99, sellers ask 100.01. Spread = 2 cents.
+        \item Crossing the spread: market order pays $\tfrac{1}{2}$ spread to enter and $\tfrac{1}{2}$ to exit.
+        \item Slippage: any adverse price move between decision and fill.
+    \end{itemize}
+    Rule of thumb: assume at least half-spread cost per market trade.
+
+    \paragraph{Shorting.}
+    To short, borrow shares and sell them. May incur a borrow fee. Some stocks are not shortable.
+
+    \paragraph{Latency and Fill Timing.}
+    Backtests must specify: do we execute at next bar’s open or close? Consistency is crucial.
+
+    \subsection{Position Sizing, Exits, and Risk Controls}
+
+    \paragraph{Position Sizing.}
+    Scale by conviction relative to risk:
+    \[
+        S_t = \text{clip}\!\left(\beta \cdot \frac{\mu}{\sigma}, -S_{\max}, S_{\max}\right).
+    \]
+    \begin{itemize}
+        \item $\beta$: aggressiveness (typical range 0.3--1.0).
+        \item $S_{\max}$: cap on exposure (e.g.\ $\pm 1.0$).
+        \item If $\mu/\sigma$ small, take small size; if large, take larger (capped).
+    \end{itemize}
+
+    \paragraph{Exit Rules.}
+    \begin{itemize}
+        \item \emph{Time stop:} exit after $n$ bars if no exit occurred.
+        \item \emph{Stop-loss (SL):} exit if loss exceeds threshold (e.g.\ $1\sigma$).
+        \item \emph{Take-profit (TP):} exit if profit exceeds threshold.
+    \end{itemize}
+
+    \paragraph{Turnover.}
+    How often positions change. High turnover $\Rightarrow$ higher costs.
+
+    \paragraph{Drawdown (DD).}
+    Peak-to-trough equity loss.
+    Example: account rises to \$1{,}000, falls to \$900, then recovers. Max DD = \$100 = 10\%.
+
+    \paragraph{Exposure.}
+    \begin{itemize}
+        \item Net exposure = long $-$ short. Example: +60\% long, $-$20\% short $\Rightarrow$ net +40\%.
+        \item Gross exposure = sum of longs and shorts. Example: 60\%+20\%=80\%.
+    \end{itemize}
+
+    \paragraph{Capacity.}
+    The maximum capital a strategy can handle before costs erode profits. Test by scaling trades and observing net P\&L.
+
+    \subsection{Model Predictions and Calibration}
+
+    \paragraph{Probability vs.\ Regression.}
+    \begin{itemize}
+        \item Classification: predict $p_{\text{up}}$ (probability of up move).
+        \item Regression: predict $\mu$ (expected return), sometimes $\sigma$ (uncertainty).
+    \end{itemize}
+
+    \paragraph{Calibration.}
+    Raw probabilities may be overconfident.
+    \begin{itemize}
+        \item Platt scaling: logistic mapping.
+        \item Isotonic regression: flexible monotonic mapping.
+    \end{itemize}
+
+    \paragraph{Quantile Regression.}
+    Predict quantiles (e.g.\ 20th, 50th, 80th percentiles). Trained via pinball loss. Gives prediction intervals and supports position sizing.
+
+    \subsection{Evaluation Metrics}
+
+    \paragraph{Sharpe Ratio.}
+    \[
+        \text{Sharpe} = \frac{\text{mean excess return}}{\text{standard deviation of returns}}.
+    \]
+    Annualized by $\sqrt{252}$ for daily data. Measures reward per unit risk.
+
+    \paragraph{Sortino Ratio.}
+    Like Sharpe, but only penalizes downside volatility.
+
+    \paragraph{Calmar Ratio.}
+    Annual return divided by max drawdown.
+
+    \paragraph{Hit Rate and Average Trade P\&L.}
+    Hit rate = fraction of profitable trades.
+    Average trade P\&L = mean profit per trade after costs.
+
+    \paragraph{Calibration Metrics.}
+    \begin{itemize}
+        \item Brier score: squared error between predicted probabilities and outcomes.
+        \item Reliability curve: compares predicted probability bins with actual outcomes.
+    \end{itemize}
+
+    \subsection{Data Hygiene and Validation}
+
+    \paragraph{Look-ahead Leakage.}
+    Using data not yet available at decision time (e.g.\ earnings before release). Prevent via timestamping and lagging.
+
+    \paragraph{Corporate Actions.}
+    Splits, dividends, and symbol changes must be adjusted for consistent returns.
+
+    \paragraph{Purged, Embargoed K-Fold.}
+    For time-series, classic K-fold leaks. Purging removes overlapping samples; embargo adds buffer gaps.
+
+    \paragraph{Walk-Forward Testing.}
+    Train on window A, validate on B, test on C. Roll forward. Mimics live deployment.
+
+    \paragraph{Multiple Testing.}
+    Trying many models risks overfitting. Keep a final untouched test.
+
+    \subsection{Labeling and Meta-Labeling}
+
+    \paragraph{Labels.}
+    Direction: $y_t=1$ if $P_{t+n}>P_t$, else 0. Regression: target $r_{t\to t+n}$.
+
+    \paragraph{Triple-Barrier Method.}
+    Define three exits: take-profit, stop-loss, time. Label is which barrier hits first.
+
+    \paragraph{Meta-Labeling.}
+    Base model proposes trades, meta-model predicts whether to act. Often reduces churn and improves Sharpe.
+
+    \subsection{Optimization Methods}
+
+    \paragraph{Bayesian Optimization.}
+    Efficient hyper-parameter tuning via surrogate modeling.
+
+    \paragraph{End-to-End Training.}
+    Optimize directly through backtest metrics. Hard due to non-differentiability. Approaches: black-box threshold tuning, short episodes, or soft approximations.
+
+    \subsection{Microstructure and Regimes}
+
+    \paragraph{Liquidity.}
+    Ease of trading without moving price. High liquidity $\Rightarrow$ tight spreads.
+
+    \paragraph{Regimes.}
+    Market ``moods'' such as high-vol vs low-vol, trending vs mean-reverting.
+
+    \paragraph{Volatility of Volatility.}
+    How fast volatility itself changes. High vol-of-vol $\Rightarrow$ noisy signals.
+
+    \subsection{Artifacts and Outputs}
+
+    \paragraph{Equity Curve.}
+    Cumulative P\&L over time (start at 1.00, plot growth).
+
+    \paragraph{Blotter.}
+    Trade log: timestamp, side, size, price, costs, entry/exit reasons.
+
+    \paragraph{Gross vs Net P\&L.}
+    Gross = before costs. Net = after costs. A strategy with good gross but poor net is cost-dominated.
+
+    \subsection{Worked Examples}
+
+    \paragraph{Example 1 (Skip Due to Costs).}
+    $\mu=+7$ bps, $\sigma=15$ bps, $c=4$ bps, $\kappa=0.5 \Rightarrow$ buffer=7.5 bps. Net edge=3 bps $<$ 7.5. Skip trade. Price rises 5 bps, but costs would erase gains.
+
+    \paragraph{Example 2 (Take 5-Bar Long).}
+    $\mu=+18$ bps, $\sigma=20$ bps, $c=3$ bps, $\kappa=0.5$. Net edge=15 bps $>$ 10 bps buffer. Position size = $0.8 \times (18/20)=0.72$. Price rises 22 bps. P\&L positive.
+
+    \paragraph{Example 3 (Short on Longer Horizon).}
+    1-bar: $\mu=+3$, $\sigma=12$, $c=3 \Rightarrow U=-6$ bps (skip).
+    20-bar: $\mu=-40$, $\sigma=25$, $c=3 \Rightarrow U=24.5$ bps (trade).
+    Take short of $-1.0$. Price drifts down; profit realized.
+
+    \paragraph{Example 4 (Meta-Label Blocks Trade).}
+    Edge barely clears buffer, but spreads widening. Meta-model says low tradeability. Skip. Market chops; skipping avoids costs.
+
+    \paragraph{Example 5 (Controlled Loss).}
+    Strong short signal. Two bars later, market rallies +30 bps. Stop-loss triggers. Small capped loss avoids larger drawdown.
+
+    \subsection{Prerequisites Checklist}
+
+    \begin{itemize}
+        \item Basic algebra and logs (why log returns add).
+        \item Mean and standard deviation as measures of uncertainty.
+        \item Bid/ask mechanics and spread as cost.
+        \item Time-series validation (purge/embargo, walk-forward).
+        \item Probability calibration.
+    \end{itemize}
+
+
+\end{document}

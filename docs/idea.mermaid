@@ -1,0 +1,50 @@
+%% mmdc -i docs/idea.mermaid -o docs/idea.svg
+flowchart TD
+    %% ===== L1: DATA & FEATURES =====
+    A["Market & Fundamentals Data<br/>- Prices, volume (OHLCV)<br/>- Spreads, depth, vol-of-vol<br/>- Calendar/regime, lagged fundamentals"] --> B["Feature Builder X_t<br/>- Lagged by true availability<br/>- Normalization, rolling stats"]
+
+    %% ===== L2: MODEL =====
+    B --> C["ML Model per horizon n in {1,5,20}"]
+    C --> D["Predictions<br/>- mu_n(t): expected return<br/>- sigma_n(t): uncertainty or quantiles<br/>- p_up,n(t): optional diagnostic"]
+
+    %% ===== COSTS =====
+    E["Cost Model c(t)<br/>- Commission<br/>- Spread, slippage<br/>- Borrow fee if short"] --> G
+    D --> G["Utility per horizon<br/>U_n(t) = abs(mu_n(t)) - c(t) - kappa * sigma_n(t)"]
+
+    %% ===== DECISION =====
+    G --> H{"Is max U_n(t) > 0 ?"}
+    H -- "No" --> Z0["No Trade<br/>Stay flat"]
+    H -- "Yes" --> I["n* = argmax U_n(t)<br/>Choose best horizon & direction from sign(mu_{n*})"]
+
+    %% ===== SIZING =====
+    I --> J["Position Sizing<br/>S_t = clip( beta * mu_{n*}(t) / sigma_{n*}(t), -S_max, S_max )"]
+
+    %% ===== RISK CONTROLS =====
+    J --> K{"Risk Controls OK?<br/>- Turnover cap<br/>- Exposure caps<br/>- Optional: meta-label gate"}
+    K -- "No" --> Z0
+    K -- "Yes" --> L["Generate Orders<br/>Side, size, price type"]
+
+    %% ===== EXECUTION & EXITS =====
+    L --> M["Execution Timing<br/>- Next bar open or close<br/>- Slippage applied"]
+    M --> N["Exits<br/>- Time stop at t + n*<br/>- Stop-loss (e.g. 1 x sigma)<br/>- Take-profit threshold"]
+
+    %% ===== ACCOUNTING =====
+    N --> P["Backtest Accounting<br/>- P&L = price change * size - costs<br/>- Trade blotter with reasons and costs"]
+
+    %% ===== METRICS =====
+    P --> Q["Metrics & Reports<br/>- Net & Gross Sharpe, Sortino, Calmar<br/>- Max DD, turnover, hit rate, avg trade P&L<br/>- Slippage share, calibration (Brier, reliability)"]
+
+    %% ===== FEEDBACK LOOPS =====
+    Q -.-> R["Calibration (Platt / Isotonic)<br/>Improve probability reliability"]
+    Q -.-> S["Hyperparameter Search (Bayesian Opt)<br/>Tune beta, kappa, barriers, model params"]
+    Q -.-> T["Robustness Checks<br/>- Sub-periods<br/>- Regimes<br/>- Cost stress +/- 50%<br/>- Open vs Close execution"]
+
+    %% ===== TRAIN/VAL/TEST FLOW =====
+    subgraph CV["Train / Validate / Test"]
+      direction LR
+      U1["Purged & Embargoed K-Fold"] --> U2["Walk-Forward Evaluation"]
+    end
+
+    C -. uses .-> CV
+    S -. selects via validation backtests .-> C
+    R -. updates .-> D

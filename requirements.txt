@@ -8,3 +8,4 @@ scikit-learn>=1.4.0
 streamlit>=1.36.0
 watchdog>=6.0.0
 yfinance>=0.2.40
+wrds>=3.4.0
