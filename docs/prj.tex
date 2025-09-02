@@ -4,61 +4,117 @@
 \usepackage{hyperref}
 \usepackage{geometry}
 \usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{mathtools}
 
 \pagestyle{fancy}
 \fancyhf{}
 \fancyfoot[R]{\thepage}
 \geometry{margin=1in}
 
-\title{Yet another Trading Strategy (YaTS) on TSX Energy Names}
+\title{Yet another Trading Strategy (YaTS) on TSX stocks}
 \date{}
 
 \begin{document}
     \maketitle
 
-    This document lays out a practical trading workflow that connects machine-learning forecasts to clear trading rules. We focus on a small set of liquid Canadian energy names on the Toronto Stock Exchange (think Enbridge and peers), use daily bars, and consider multi-day horizons $n \in \{1,5,20\}$. The aim is simple: trade only when the expected benefit—after costs and risk—justifies it. Because fundamentals from WRDS are central, we respect when information becomes public, we handle dividends and ex-dividend mechanics, and we keep an eye on opportunity cost and Canada’s tax treatment when interpreting results.
+    \section*{Overview}
+    This document lays out a practical trading workflow that connects machine-learning forecasts to clear trading rules. We focus on the full set of Canadian stocks on the Toronto Stock Exchange ($\sim$100 stocks), use daily bars, and consider multi-day horizons $n \in \{1,5,20\}$. The aim is simple: trade only when the expected benefit---after costs and risk---justifies it. We incorporate techniques demonstrated in the provided code:
+    \begin{itemize}[leftmargin=1.25em]
+        \item \textbf{Linear/Multivariate Regression \& HAC} (Code: \textbf{Ch.~3 -- Linear regression}): OLS/MLR on lagged returns and technicals; HAC coefs.
+        \item \textbf{Cross-Validation Schemes} (Code: \textbf{Ch.~5 -- Cross-validation}): LOOCV, 10-fold, and time-aware \emph{timeslice} (expanding/sliding).
+        \item \textbf{Regularization} (Code: \textbf{Ch.~6 -- Regularization}): ridge, lasso, elastic-net via \texttt{glmnet} with standardized features and time-slice CV.
+        \item \textbf{Subset Selection} (Code: \textbf{Ch.~6 -- Subset selection}): exhaustive/forward/backward (\texttt{leaps}), selection by Adj-$R^2$/BIC.
+        \item \textbf{Stock Picking Portfolio} (Code: \textbf{Ch.~3 case study} \& \textbf{Ch.~6 Nasdaq lasso}): long top-$k$ predicted, short bottom-$k$.
+    \end{itemize}
 
     \paragraph{Universe, cadence, and data discipline.}
-    We track a tight list of TSX energy stocks and operate on the daily close. Market data come as OHLCV; corporate actions (splits, dividends) are applied so returns reflect what an investor would experience. Fundamentals are pulled from WRDS (e.g., Compustat North America) and timestamped by when a typical investor could reasonably know them (announcement/filing plus a conservative delay). Any feature that isn’t available at decision time is shifted or dropped—no peeking ahead.
+    We operate on the daily close. Market data are OHLCV; corporate actions (splits, dividends) are applied so returns reflect investor experience. Fundamentals (e.g., Compustat) are timestamped by public availability with a conservative delay; any feature that is not available at decision time is shifted or dropped (no look-ahead), as in Ch.~3.
 
     \paragraph{Targets and predictions.}
-    Each day $t$, the model ingests a feature vector $X_t$ built from price/volume history, microstructure proxies (e.g., spreads if available, volatility-of-volatility), calendar/regime flags, and lagged fundamentals (profitability, leverage, payout and coverage ratios, cash-flow stability). For each $n \in \{1,5,20\}$, it outputs an expected log return $\mu_n(t)$ and an uncertainty measure $\sigma_n(t)$ (or a few quantiles that imply $\sigma$). We may also compute a probability of an up move $p_{\text{up},n}(t)$ for diagnostics, but the trading logic uses $\mu$ (how much we expect to make) and $\sigma$ (how uncertain that is).
+    Each day $t$, we build $X_t$ from price/volume history, microstructure proxies, calendar/regime flags, and lagged fundamentals. For $n \in \{1,5,20\}$ we produce an expected log-return $\mu_n(t)$ and an uncertainty proxy $\sigma_n(t)$ (or quantiles).
 
     \paragraph{From forecast to trade decision.}
-    A forecast is not a trade. We weigh the signal against costs and uncertainty. For each horizon,
-    \[
+    Following the decision template we used earlier, we compare edge to cost and uncertainty:
+    \begin{equation}
         U_n(t) \;=\; \lvert \mu_n(t) \rvert \;-\; c(t) \;-\; \kappa\,\sigma_n(t),
-    \]
-    where $c(t)$ is all-in one-way cost (commission, spread/slippage, and a borrow fee if short), and $\kappa$ is a tunable risk buffer. Taking the absolute value means a strong negative $\mu$ is just as actionable (short) as a strong positive $\mu$ (long). If the best horizon has $U_n(t)\le 0$, we do nothing; otherwise we pick $n^{\ast}=\arg\max_{n} U_n(t)$ and set direction by the sign of $\mu_{n^{\ast}}(t)$.
+        \label{eq:utility}
+    \end{equation}
+    where $c(t)$ is the one-way cost (commission $+$ spread/slippage $+$ borrow if short) and $\kappa$ is a risk buffer. If $\max_n U_n(t)\le0$, we stay flat; otherwise $n^\star=\arg\max_n U_n(t)$ and side $=\operatorname{sign}\mu_{n^\star}(t)$.
 
     \paragraph{Sizing by conviction.}
-    Position size should grow with conviction, but never without limits. We use a Sharpe-like ratio and cap it:
-    \[
-        S_t \;=\; \operatorname{clip}\!\Bigl( \beta \cdot \tfrac{\mu_{n^{\ast}}(t)}{\sigma_{n^{\ast}}(t)} \,;\, -S_{\max},\, S_{\max} \Bigr),
-    \]
-    where $\beta$ controls aggressiveness and $S_{\max}$ is a hard cap (e.g., $\lvert S\rvert\!=\!1$ for all-in). The operator $\operatorname{clip}(x; a,b)$ means $\min\{\max\{x,a\},\,b\}$. Small signal-to-noise means small $\lvert S_t\rvert$; large signal-to-noise means larger size—but never beyond $S_{\max}$.
+    Use a clipped signal-to-noise sizing (cf.\ our earlier draft), with $\beta$ as aggressiveness and $S_{\max}$ a hard cap:
+    \begin{equation}
+        S_t \;=\; \operatorname{clip}\!\Bigl( \beta \,\frac{\mu_{n^\star}(t)}{\sigma_{n^\star}(t)} \,;\, -S_{\max},\, S_{\max} \Bigr).
+        \label{eq:sizing}
+    \end{equation}
 
     \paragraph{Exit rules and time consistency.}
-    We do not hold forever. If nothing else triggers first, a time stop closes the position after $n^{\ast}$ days. To protect capital, a stop-loss exits early if the unrealized loss crosses a volatility-scaled threshold; a take-profit locks gains past a preset level. Exits are defined up front and use the same timestamps and price fields as the entry.
+    Time stop at $n^\star$ days if not hit before; a volatility-scaled stop-loss and a take-profit are defined ex-ante with the same timestamps/price fields as the entry.
 
-    \paragraph{Costs, dividends, and ex-dividend days.}
-    Costs $c(t)$ should at least reflect paying roughly half the bid–ask spread when crossing with marketable orders, plus commission; for thinner names or larger orders, an impact term is sensible. Because dividend payers are central to this universe, we explicitly carry ex-dividend dates: on the ex-date, price typically adjusts down by about the cash dividend, though the exact move depends on ticks, taxes, and market conditions. In backtests we line up dividend cash receipts with ex/record/payable dates and keep corporate-action adjustments consistent so that predicted returns and realized P\&L can be compared fairly.
+    \section*{Modeling blocks grounded in the shared code}
 
-    \paragraph{Opportunity cost and Canadian tax context.}
-    Money in a stock cannot also sit in a cash-like instrument. When comparing choices (including holding through a dividend), we track a cash benchmark to show what was forgone. For a Canadian resident’s after-tax view, two items matter: (i) eligible dividends from taxable Canadian corporations are grossed up and come with dividend tax credits (federal and provincial); (ii) capital gains are taxed via an inclusion rate that can vary by taxpayer type and, above a threshold, by amount or date. We do not bake personal tax into trading P\&L; instead, we can show a side-by-side after-tax lens using current public rules, and call out TFSA/RRSP/RRIF accounts separately because sheltering changes the effective drag.
+    \subsection*{Linear \& multivariate regression (Ch.~3)}
+    Let $y_t$ denote lead log returns (e.g., weekly lead in Ch.~3). The OLS estimator used in the code is
+    \begin{equation}
+        \hat{\beta}_{\mathrm{OLS}} \;=\; (X^\top X)^{-1} X^\top y,
+        \label{eq:ols}
+    \end{equation}
+    with optional \emph{HAC-robust} inference as demonstrated. We mirror this on TSX with daily features and lead-$n$ labels.
 
-    \paragraph{Training and evaluation, kept simple.}
-    We split history into rolling windows: train on the past, tune on the next slice, test on the following unseen slice. Because labels at different horizons can overlap, we leave a small gap between train and tune so the model doesn’t learn near-duplicates on both sides. Losses match what we predict (e.g., Gaussian negative log-likelihood for $\mu$ and $\sigma$, or pinball loss for quantiles). When choosing a final setting, we look at net test Sharpe with sensible penalties for excessive turnover and deep drawdowns, and we also check calibration to confirm that bigger predicted moves tend to happen more often than smaller ones.
+    \subsection*{Cross-validation designs (Ch.~5)}
+    We adopt the exact CV modes implemented in the code:
+    \begin{align}
+        \text{LOOCV MSE} &: \quad \frac{1}{T} \sum_{t=1}^{T} \bigl(y_t - \hat{y}_{-t}\bigr)^2, \label{eq:loocv}\\[3pt]
+        \text{$K$-fold MSE} &: \quad \frac{1}{K} \sum_{k=1}^{K} \frac{1}{\lvert \mathcal{I}_k\rvert} \sum_{t\in\mathcal{I}_k} \bigl(y_t - \hat{y}_{-k}\bigr)^2, \label{eq:kfold}
+    \end{align}
+    and \textbf{time-aware} \texttt{timeslice} CV (expanding/sliding windows) for financial stationarity/regime checks.
 
-    \paragraph{Reports and traceability.}
-    Each run outputs a clear equity curve (gross and net), a trade log with reasons for entries/exits, turnover, hit rate, average trade P\&L, drawdowns, and a cost breakdown (commission, spread/slippage, borrow). For dividend payers we show both price-only and total-return series. A short appendix can add a stylized after-tax view for a Canadian resident—clearly labelled as a simple estimate, not advice. Everything is reproducible from a saved configuration that pins data snapshots, feature recipes, and model versions.
+    \subsection*{Regularization (Ch.~6: ridge, lasso, elastic-net)}
+    We standardize features and tune on $(\alpha,\lambda)$ grids (\texttt{glmnet}) via \texttt{train()} with \texttt{method = "glmnet"} and \texttt{trControl = timeslice}, exactly as in the code.
+    \begin{align}
+        \text{Ridge:}\quad
+        \hat{\beta}(\lambda) &= \arg\min_{\beta}\; \frac{1}{2}\lVert y - X\beta\rVert_2^2 + \lambda \lVert \beta\rVert_2^2, \label{eq:ridge}\\[3pt]
+        \text{Lasso:}\quad
+        \hat{\beta}(\lambda) &= \arg\min_{\beta}\; \frac{1}{2}\lVert y - X\beta\rVert_2^2 + \lambda \lVert \beta\rVert_1, \label{eq:lasso}\\[3pt]
+        \text{Elastic-net:}\quad
+        \hat{\beta}(\alpha,\lambda) &= \arg\min_{\beta}\; \frac{1}{2}\lVert y - X\beta\rVert_2^2 + \lambda\!\left(\alpha \lVert \beta\rVert_1 + (1-\alpha)\lVert \beta\rVert_2^2\right). \label{eq:enet}
+    \end{align}
+    We select $\lambda^\star$ (and $\alpha^\star$) by the \emph{timeslice} CV metric (in the code: $R^2$ or RMSE).
 
-    \paragraph{Diagram.}
-    The digram outline the full pipeline from data collection to model training to trading decisions.
+    \subsection*{Subset selection (Ch.~6: \texttt{leaps})}
+    We optionally apply exhaustive/forward/backward subset search (\texttt{regsubsets}) on the TSX design matrix, pick by $\text{Adj}\,R^2$ or BIC (as in code), then rebuild an OLS on the chosen subset and compute test MSE.
+
+    \section*{Portfolio construction (per code case studies)}
+    As in the NASDAQ examples, we evaluate:
+    \begin{itemize}[leftmargin=1.25em]
+        \item Equal-weight baseline.
+        \item Mean--variance and max-diversification (train-period $\mu,\Sigma$).
+        \item \textbf{Picking long--short}: on each test date, go long the $k$ names with highest predicted returns and short the $k$ lowest, with weights
+        \[
+            w_i(t)=
+            \begin{cases}
+                +\tfrac{2}{k}, & i\in \text{Top-}k\\
+                -\tfrac{1}{k}, & i\in \text{Bottom-}k\\
+                0, & \text{otherwise,}
+            \end{cases}
+        \]
+        exactly as in the provided case-study code; portfolio return aggregates realized next-period returns.
+    \end{itemize}
+    Performance is summarized by cumulative return, Sharpe (StdDev), and modified Sharpe (ES), matching the code.
+
+    \section*{Train/validation/test protocol}
+    We use rolling windows with \texttt{caret}'s \texttt{timeslice} (Code: Ch.~5) for hyperparameters ($\beta,\kappa$ in Eqs.~\eqref{eq:utility}--\eqref{eq:sizing}, and $(\alpha,\lambda)$ in Eqs.~\eqref{eq:ridge}--\eqref{eq:enet}). We hold out an unseen test year for reporting, mirroring Ch.~5 \& Ch.~6.
+
+    \section*{Reports and traceability}
+    Each run outputs an equity curve (gross/net), a trade blotter (entries/exits with reasons), turnover, hit rate, average trade P\&L, drawdowns, and cost breakdown (commission, slippage, borrow). For dividend payers we show both price-only and total-return series. Configs pin data snapshots, feature recipes, and model versions for full reproducibility.
+
+    \section*{Pipeline diagram}
+    Figure~\ref{fig:pipeline} summarizes the end-to-end flow grounded in the referenced code.
     \begin{figure}[h]
         \centering
         \includegraphics[width=0.78\linewidth,keepaspectratio]{fig/pipeline}
-        \caption{Overview from data to reports.}\label{fig:figure}
+        \caption{Overview from data to reports.}\label{fig:pipeline}
     \end{figure}
 
 \end{document}
