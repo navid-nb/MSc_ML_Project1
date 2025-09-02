@@ -12,14 +12,23 @@
 \fancyfoot[R]{\thepage}
 \geometry{margin=1in}
 
-\title{Yet another Trading Strategy (YaTS) on TSX stocks}
+\title{Yet another Trading Strategy (YaTS) on US stocks}
 \date{}
 
 \begin{document}
     \maketitle
 
+    \section*{Abstract}
+        This strategy adds a machine-learning layer on top of an existing portfolio. It looks across a universe of 500 large U.S. stocks, forecasting near-term moves and turning those forecasts into clear buy, sell, or hold signals. The system can start from your current holdings and adjust positions daily, tilting toward stocks expected to perform better and scaling back or shorting those likely to lag.
+        \medskip
+        Trading is designed to be practical: signals are updated once per day (by default), but can also run at weekly or finer intervals depending on costs and preferences. The approach can operate fully automatically, or simply provide recommendations that you review and approve.
+        \medskip
+        The model retrains on a rolling basis, so it adapts as markets change and drops signals that stop working. While it is built for the largest 500 U.S. names, the framework extends to other liquid stocks as long as sufficient data is available.
+        \medskip
+        The goal is simple: enhance returns and smooth risk by adding a disciplined, transparent decision layer. Every trade is backed by a forecast, cost check, and risk limit, with full reporting on equity curves, Sharpe ratios, drawdowns, and a trade log that shows exactly how gains and losses occur.
+
     \section*{Overview}
-    This document lays out a practical trading workflow that connects machine-learning forecasts to clear trading rules. We focus on the full set of Canadian stocks on the Toronto Stock Exchange ($\sim$100 stocks), use daily bars, and consider multi-day horizons $n \in \{1,5,20\}$. The aim is simple: trade only when the expected benefit---after costs and risk---justifies it. We incorporate techniques demonstrated in the provided code:
+    This document lays out a practical trading workflow that connects machine-learning forecasts to clear trading rules. We focus on a universe of roughly 500 U.S. stocks, use daily bars, and consider multi-day horizons $n \in \{1,5,20\}$. The aim is simple: trade only when the expected benefit, after costs and risk, justifies it. We incorporate the following techniques demonstrated in the course material:
     \begin{itemize}[leftmargin=1.25em]
         \item \textbf{Linear/Multivariate Regression \& HAC} (Code: \textbf{Ch.~3 -- Linear regression}): OLS/MLR on lagged returns and technicals; HAC coefs.
         \item \textbf{Cross-Validation Schemes} (Code: \textbf{Ch.~5 -- Cross-validation}): LOOCV, 10-fold, and time-aware \emph{timeslice} (expanding/sliding).
@@ -29,10 +38,19 @@
     \end{itemize}
 
     \paragraph{Universe, cadence, and data discipline.}
-    We operate on the daily close. Market data are OHLCV; corporate actions (splits, dividends) are applied so returns reflect investor experience. Fundamentals (e.g., Compustat) are timestamped by public availability with a conservative delay; any feature that is not available at decision time is shifted or dropped (no look-ahead), as in Ch.~3.
+    We operate on the daily close. Market data are OHLCV; corporate actions (splits, dividends) are applied so returns reflect investor experience. Fundamentals (e.g., WRDS Compustat) are timestamped by public availability with a conservative delay; any feature that is not available at decision time is shifted or dropped (no look-ahead), as in Ch.~3.
 
     \paragraph{Targets and predictions.}
     Each day $t$, we build $X_t$ from price/volume history, microstructure proxies, calendar/regime flags, and lagged fundamentals. For $n \in \{1,5,20\}$ we produce an expected log-return $\mu_n(t)$ and an uncertainty proxy $\sigma_n(t)$ (or quantiles).
+
+    \paragraph{Feature dimensionality reduction.}
+    From WRDS and technical indicators, the raw feature set easily exceeds $500$ variables per stock. With a universe of $\sim 500$ U.S. stocks, this yields a very high-dimensional prediction problem. We apply:
+    \begin{itemize}[leftmargin=1.25em]
+        \item \textbf{Regularization} (lasso, elastic-net) to shrink irrelevant coefficients to zero.
+        \item \textbf{Subset selection} (exhaustive, forward, backward) to retain only predictive variables.
+        \item \textbf{Principal Components / factor models} optionally reduce correlated groups into low-rank factors.
+    \end{itemize}
+    This step ensures stable out-of-sample forecasts, controls variance, and keeps the models interpretable. Dimensionality reduction is applied stock-by-stock before training regression models.
 
     \paragraph{From forecast to trade decision.}
     Following the decision template we used earlier, we compare edge to cost and uncertainty:
@@ -43,7 +61,7 @@
     where $c(t)$ is the one-way cost (commission $+$ spread/slippage $+$ borrow if short) and $\kappa$ is a risk buffer. If $\max_n U_n(t)\le0$, we stay flat; otherwise $n^\star=\arg\max_n U_n(t)$ and side $=\operatorname{sign}\mu_{n^\star}(t)$.
 
     \paragraph{Sizing by conviction.}
-    Use a clipped signal-to-noise sizing (cf.\ our earlier draft), with $\beta$ as aggressiveness and $S_{\max}$ a hard cap:
+    Use a clipped signal-to-noise sizing, with $\beta$ as aggressiveness and $S_{\max}$ a hard cap:
     \begin{equation}
         S_t \;=\; \operatorname{clip}\!\Bigl( \beta \,\frac{\mu_{n^\star}(t)}{\sigma_{n^\star}(t)} \,;\, -S_{\max},\, S_{\max} \Bigr).
         \label{eq:sizing}
@@ -60,10 +78,10 @@
         \hat{\beta}_{\mathrm{OLS}} \;=\; (X^\top X)^{-1} X^\top y,
         \label{eq:ols}
     \end{equation}
-    with optional \emph{HAC-robust} inference as demonstrated. We mirror this on TSX with daily features and lead-$n$ labels.
+    with optional \emph{HAC-robust} inference as demonstrated.
 
     \subsection*{Cross-validation designs (Ch.~5)}
-    We adopt the exact CV modes implemented in the code:
+    We adopt the CV modes implemented in the code:
     \begin{align}
         \text{LOOCV MSE} &: \quad \frac{1}{T} \sum_{t=1}^{T} \bigl(y_t - \hat{y}_{-t}\bigr)^2, \label{eq:loocv}\\[3pt]
         \text{$K$-fold MSE} &: \quad \frac{1}{K} \sum_{k=1}^{K} \frac{1}{\lvert \mathcal{I}_k\rvert} \sum_{t\in\mathcal{I}_k} \bigl(y_t - \hat{y}_{-k}\bigr)^2, \label{eq:kfold}
@@ -83,7 +101,7 @@
     We select $\lambda^\star$ (and $\alpha^\star$) by the \emph{timeslice} CV metric (in the code: $R^2$ or RMSE).
 
     \subsection*{Subset selection (Ch.~6: \texttt{leaps})}
-    We optionally apply exhaustive/forward/backward subset search (\texttt{regsubsets}) on the TSX design matrix, pick by $\text{Adj}\,R^2$ or BIC (as in code), then rebuild an OLS on the chosen subset and compute test MSE.
+    We optionally apply exhaustive/forward/backward subset search (\texttt{regsubsets}), pick by $\text{Adj}\,R^2$ or BIC, then rebuild an OLS on the chosen subset and compute test MSE.
 
     \section*{Portfolio construction (per code case studies)}
     As in the NASDAQ examples, we evaluate:
@@ -99,12 +117,12 @@
                 0, & \text{otherwise,}
             \end{cases}
         \]
-        exactly as in the provided case-study code; portfolio return aggregates realized next-period returns.
+        exactly as in the case-study code.
     \end{itemize}
-    Performance is summarized by cumulative return, Sharpe (StdDev), and modified Sharpe (ES), matching the code.
+    Performance is summarized by cumulative return, Sharpe (StdDev), and modified Sharpe (ES).
 
     \section*{Train/validation/test protocol}
-    We use rolling windows with \texttt{caret}'s \texttt{timeslice} (Code: Ch.~5) for hyperparameters ($\beta,\kappa$ in Eqs.~\eqref{eq:utility}--\eqref{eq:sizing}, and $(\alpha,\lambda)$ in Eqs.~\eqref{eq:ridge}--\eqref{eq:enet}). We hold out an unseen test year for reporting, mirroring Ch.~5 \& Ch.~6.
+    We use rolling windows with \texttt{caret}'s \texttt{timeslice} (Code: Ch.~5) for hyperparameters ($\beta,\kappa$ in Eqs.~\eqref{eq:utility}--\eqref{eq:sizing}, and $(\alpha,\lambda)$ in Eqs.~\eqref{eq:ridge}--\eqref{eq:enet}). We hold out an unseen test year for reporting.
 
     \section*{Reports and traceability}
     Each run outputs an equity curve (gross/net), a trade blotter (entries/exits with reasons), turnover, hit rate, average trade P\&L, drawdowns, and cost breakdown (commission, slippage, borrow). For dividend payers we show both price-only and total-return series. Configs pin data snapshots, feature recipes, and model versions for full reproducibility.
