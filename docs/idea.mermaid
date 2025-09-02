@@ -1,50 +1,77 @@
 %% mmdc -i docs/idea.mermaid -o docs/idea.svg
 flowchart TD
-    %% ===== L1: DATA & FEATURES =====
-    A["Market & Fundamentals Data<br/>- Prices, volume (OHLCV)<br/>- Spreads, depth, vol-of-vol<br/>- Calendar/regime, lagged fundamentals"] --> B["Feature Builder X_t<br/>- Lagged by true availability<br/>- Normalization, rolling stats"]
+  %% ===== L1: DATA & FEATURES =====
+  A["Market & Fundamentals Data<br/>- OHLCV, corporate actions<br/>- Spreads/slippage proxies<br/>- Lagged fundamentals (WRDS)<br/>- Calendar/regime flags"]
+  B["Feature Builder X_t<br/>- Shift by true availability (no leakage)<br/>- Rolling stats, tech indicators<br/>- Standardize for glmnet"]
 
-    %% ===== L2: MODEL =====
-    B --> C["ML Model per horizon n in {1,5,20}"]
-    C --> D["Predictions<br/>- mu_n(t): expected return<br/>- sigma_n(t): uncertainty or quantiles<br/>- p_up,n(t): optional diagnostic"]
+  A --> B
 
-    %% ===== COSTS =====
-    E["Cost Model c(t)<br/>- Commission<br/>- Spread, slippage<br/>- Borrow fee if short"] --> G
-    D --> G["Utility per horizon<br/>U_n(t) = abs(mu_n(t)) - c(t) - kappa * sigma_n(t)"]
+  %% ===== L2: MODEL FAMILY =====
+  subgraph M["Models (per horizon n∈{1,5,20})"]
+    direction TB
+    M1["OLS / MLR (Ch.3)<br/>β̂=(XᵀX)⁻¹Xᵀy; HAC coefs (optional)"]
+    M2["Regularization (Ch.6)<br/>Ridge/Lasso/EN via glmnet"]
+    M3["Subset Selection (Ch.6)<br/>Exhaustive/Forward/Backward (leaps)"]
+  end
+  B --> M
 
-    %% ===== DECISION =====
-    G --> H{"Is max U_n(t) > 0 ?"}
-    H -- "No" --> Z0["No Trade<br/>Stay flat"]
-    H -- "Yes" --> I["n* = argmax U_n(t)<br/>Choose best horizon & direction from sign(mu_{n*})"]
+  %% ===== CV / SELECTION =====
+  subgraph CV["Model Selection (Ch.5 & Ch.6)"]
+    direction TB
+    C1["LOOCV / 10-fold (Ch.5)"]
+    C2["TimeSlice: Expanding & Sliding (Ch.5)"]
+    C3["Grid over (α,λ) for glmnet (Ch.6)"]
+    C4["Pick by RMSE / R² / BIC / AdjR²"]
+  end
+  M --> CV
 
-    %% ===== SIZING =====
-    I --> J["Position Sizing<br/>S_t = clip( beta * mu_{n*}(t) / sigma_{n*}(t), -S_max, S_max )"]
+  %% ===== PREDICTIONS =====
+  P["Predictions per horizon<br/>μ_n(t): expected return<br/>σ_n(t): uncertainty/quantiles"]
+  CV --> P
 
-    %% ===== RISK CONTROLS =====
-    J --> K{"Risk Controls OK?<br/>- Turnover cap<br/>- Exposure caps<br/>- Optional: meta-label gate"}
-    K -- "No" --> Z0
-    K -- "Yes" --> L["Generate Orders<br/>Side, size, price type"]
+  %% ===== COSTS & DECISION =====
+  E["Cost Model c(t)<br/>Commission, spread/slippage, borrow"]
+  D["Utility (Eq. 1)<br/>U_n(t)=|μ_n(t)| - c(t) - κ·σ_n(t)"]
+  P --> D
+  E --> D
 
-    %% ===== EXECUTION & EXITS =====
-    L --> M["Execution Timing<br/>- Next bar open or close<br/>- Slippage applied"]
-    M --> N["Exits<br/>- Time stop at t + n*<br/>- Stop-loss (e.g. 1 x sigma)<br/>- Take-profit threshold"]
+  Q{"max_n U_n(t) > 0 ?"}
+  D --> Q
+  Q -- "No" --> Z0["No Trade"]
+  Q -- "Yes" --> Nstar["Choose best horizon n* and side = sign(μ_{n*}(t))"]
 
-    %% ===== ACCOUNTING =====
-    N --> P["Backtest Accounting<br/>- P&L = price change * size - costs<br/>- Trade blotter with reasons and costs"]
+  %% ===== SIZING =====
+  S["Sizing (Eq. 2)<br/>S_t = clip( β·μ_{n*}(t)/σ_{n*}(t), -S_max, S_max )"]
+  Nstar --> S
 
-    %% ===== METRICS =====
-    P --> Q["Metrics & Reports<br/>- Net & Gross Sharpe, Sortino, Calmar<br/>- Max DD, turnover, hit rate, avg trade P&L<br/>- Slippage share, calibration (Brier, reliability)"]
+  %% ===== RISK & ORDERS =====
+  R1{"Risk gates<br/>- Turnover/exposure caps"}
+  S --> R1
+  R1 -- "No" --> Z0
+  R1 -- "Yes" --> O["Orders<br/>Side, size, timing (next close/open)"]
 
-    %% ===== FEEDBACK LOOPS =====
-    Q -.-> R["Calibration (Platt / Isotonic)<br/>Improve probability reliability"]
-    Q -.-> S["Hyperparameter Search (Bayesian Opt)<br/>Tune beta, kappa, barriers, model params"]
-    Q -.-> T["Robustness Checks<br/>- Sub-periods<br/>- Regimes<br/>- Cost stress +/- 50%<br/>- Open vs Close execution"]
+  %% ===== EXECUTION & EXITS =====
+  X["Execution w/ slippage"]
+  O --> X
+  EXIT["Exits<br/>Time stop at t+n*<br/>Vol-scaled stop-loss<br/>Take-profit"]
+  X --> EXIT
 
-    %% ===== TRAIN/VAL/TEST FLOW =====
-    subgraph CV["Train / Validate / Test"]
-      direction LR
-      U1["Purged & Embargoed K-Fold"] --> U2["Walk-Forward Evaluation"]
-    end
+  %% ===== PORTFOLIOS =====
+  subgraph PF["Portfolio Layer"]
+    direction TB
+    W0["Equal-Weight baseline"]
+    W1["Mean-Variance (μ,Σ from train)"]
+    W2["Max-Diversification"]
+    W3["Picking Long–Short (Ch.3/Ch.6)<br/>Long top-k, Short bottom-k<br/>Weights: +2/k vs −1/k"]
+  end
+  EXIT --> PF
 
-    C -. uses .-> CV
-    S -. selects via validation backtests .-> C
-    R -. updates .-> D
+  %% ===== ACCOUNTING & REPORTS =====
+  ACC["Accounting & Blotter<br/>P&L = price change×size − costs"]
+  PF --> ACC
+
+  REP["Reports<br/>Cumulative return, Sharpe, ES<br/>DD, turnover, hit rate<br/>Calibration & cost breakdown"]
+  ACC --> REP
+
+  %% ===== FEEDBACK =====
+  REP -.-> CV

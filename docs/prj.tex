@@ -19,7 +19,7 @@
     \maketitle
 
     \section*{Abstract}
-    This strategy adds a machine-learning layer on top of an existing portfolio and transforms raw market and fundamental data into daily trading actions. We start with a universe of 500 large U.S. stocks, each with over five hundred features drawn from prices, volumes, technical signals, and WRDS fundamentals. These inputs are cleaned, aligned to when they become public, and then compressed through regularization, subset selection, or factor reduction so that only the most informative features remain.
+    This strategy adds a machine-learning layer on top of an existing portfolio and transforms raw market and fundamental data into daily trading actions. We start with a universe of 500 large U.S. stocks, each with over five hundred features drawn from prices, volumes, technical signals, and WRDS fundamentals. These inputs are cleaned, aligned to when they become public, and then compressed through regularization, subset selection, and factor reduction so that only the most informative features remain.
 
     \medskip
     On this reduced set, we train two types of predictive models. Linear regression and its regularized forms (ridge, lasso, elastic-net) forecast continuous next-period returns, while logistic regression is used to classify the probability of an upward or downward move. Forecasts are updated on a rolling basis, ensuring the system adapts as market conditions change and discards signals that stop working.
@@ -78,10 +78,10 @@
     \paragraph{Exit rules and time consistency.}
     Time stop at $n^\star$ days if not hit before; a volatility-scaled stop-loss and a take-profit are defined ex-ante with the same timestamps/price fields as the entry.
 
-    \section*{Modeling blocks grounded in the shared code}
+    \section*{Modeling blocks}
 
     \subsection*{Linear \& multivariate regression (Ch.~3)}
-    Let $y_t$ denote lead log returns (e.g., weekly lead in Ch.~3). The OLS estimator used in the code is
+    Let $y_t$ denote lead log returns (e.g., weekly lead in Ch.~3). The OLS estimator is
     \begin{equation}
         \hat{\beta}_{\mathrm{OLS}} \;=\; (X^\top X)^{-1} X^\top y,
         \label{eq:ols}
@@ -89,7 +89,7 @@
     with optional \emph{HAC-robust} inference as demonstrated.
 
     \subsection*{Cross-validation designs (Ch.~5)}
-    We adopt the CV modes implemented in the code:
+    We adopt the CV modes:
     \begin{align}
         \text{LOOCV MSE} &: \quad \frac{1}{T} \sum_{t=1}^{T} \bigl(y_t - \hat{y}_{-t}\bigr)^2, \label{eq:loocv}\\[3pt]
         \text{$K$-fold MSE} &: \quad \frac{1}{K} \sum_{k=1}^{K} \frac{1}{\lvert \mathcal{I}_k\rvert} \sum_{t\in\mathcal{I}_k} \bigl(y_t - \hat{y}_{-k}\bigr)^2, \label{eq:kfold}
@@ -97,7 +97,7 @@
     and \textbf{time-aware} \texttt{timeslice} CV (expanding/sliding windows) for financial stationarity/regime checks.
 
     \subsection*{Regularization (Ch.~6: ridge, lasso, elastic-net)}
-    We standardize features and tune on $(\alpha,\lambda)$ grids (\texttt{glmnet}) via \texttt{train()} with \texttt{method = "glmnet"} and \texttt{trControl = timeslice}, exactly as in the code.
+    We standardize features and tune on $(\alpha,\lambda)$ grids (\texttt{glmnet}) via \texttt{train()} with \texttt{method = "glmnet"} and \texttt{trControl = timeslice}.
     \begin{align}
         \text{Ridge:}\quad
         \hat{\beta}(\lambda) &= \arg\min_{\beta}\; \frac{1}{2}\lVert y - X\beta\rVert_2^2 + \lambda \lVert \beta\rVert_2^2, \label{eq:ridge}\\[3pt]
@@ -106,12 +106,12 @@
         \text{Elastic-net:}\quad
         \hat{\beta}(\alpha,\lambda) &= \arg\min_{\beta}\; \frac{1}{2}\lVert y - X\beta\rVert_2^2 + \lambda\!\left(\alpha \lVert \beta\rVert_1 + (1-\alpha)\lVert \beta\rVert_2^2\right). \label{eq:enet}
     \end{align}
-    We select $\lambda^\star$ (and $\alpha^\star$) by the \emph{timeslice} CV metric (in the code: $R^2$ or RMSE).
+    We select $\lambda^\star$ (and $\alpha^\star$) by the \emph{timeslice} CV metric ($R^2$ or RMSE).
 
     \subsection*{Subset selection (Ch.~6: \texttt{leaps})}
     We optionally apply exhaustive/forward/backward subset search (\texttt{regsubsets}), pick by $\text{Adj}\,R^2$ or BIC, then rebuild an OLS on the chosen subset and compute test MSE.
 
-    \section*{Portfolio construction (per code case studies)}
+    \section*{Portfolio construction}
     As in the NASDAQ examples, we evaluate:
     \begin{itemize}[leftmargin=1.25em]
         \item Equal-weight baseline.
@@ -125,18 +125,17 @@
                 0, & \text{otherwise,}
             \end{cases}
         \]
-        exactly as in the case-study code.
     \end{itemize}
     Performance is summarized by cumulative return, Sharpe (StdDev), and modified Sharpe (ES).
 
     \section*{Train/validation/test protocol}
-    We use rolling windows with \texttt{caret}'s \texttt{timeslice} (Code: Ch.~5) for hyperparameters ($\beta,\kappa$ in Eqs.~\eqref{eq:utility}--\eqref{eq:sizing}, and $(\alpha,\lambda)$ in Eqs.~\eqref{eq:ridge}--\eqref{eq:enet}). We hold out an unseen test year for reporting.
+    We use rolling windows with \texttt{caret}'s \texttt{timeslice} (Ch.~5) for hyperparameters ($\beta,\kappa$ in Eqs.~\eqref{eq:utility}--\eqref{eq:sizing}, and $(\alpha,\lambda)$ in Eqs.~\eqref{eq:ridge}--\eqref{eq:enet}). We hold out an unseen test year for reporting.
 
     \section*{Reports and traceability}
     Each run outputs an equity curve (gross/net), a trade blotter (entries/exits with reasons), turnover, hit rate, average trade P\&L, drawdowns, and cost breakdown (commission, slippage, borrow). For dividend payers we show both price-only and total-return series. Configs pin data snapshots, feature recipes, and model versions for full reproducibility.
 
     \section*{Pipeline diagram}
-    Figure~\ref{fig:pipeline} summarizes the end-to-end flow grounded in the referenced code.
+    Figure~\ref{fig:pipeline} summarizes the end-to-end flow.
     \begin{figure}[h]
         \centering
         \includegraphics[width=0.78\linewidth,keepaspectratio]{fig/pipeline}
