@@ -19,13 +19,15 @@
     \maketitle
 
     \section*{Abstract}
-        This strategy adds a machine-learning layer on top of an existing portfolio. It looks across a universe of 500 large U.S. stocks, forecasting near-term moves and turning those forecasts into clear buy, sell, or hold signals. The system can start from your current holdings and adjust positions daily, tilting toward stocks expected to perform better and scaling back or shorting those likely to lag.
-        \medskip
-        Trading is designed to be practical: signals are updated once per day (by default), but can also run at weekly or finer intervals depending on costs and preferences. The approach can operate fully automatically, or simply provide recommendations that you review and approve.
-        \medskip
-        The model retrains on a rolling basis, so it adapts as markets change and drops signals that stop working. While it is built for the largest 500 U.S. names, the framework extends to other liquid stocks as long as sufficient data is available.
-        \medskip
-        The goal is simple: enhance returns and smooth risk by adding a disciplined, transparent decision layer. Every trade is backed by a forecast, cost check, and risk limit, with full reporting on equity curves, Sharpe ratios, drawdowns, and a trade log that shows exactly how gains and losses occur.
+    This strategy adds a machine-learning layer on top of an existing portfolio. It looks across a universe of 500 large U.S. stocks, forecasting near-term moves and turning those forecasts into clear buy, sell, or hold signals. The system can start from your current holdings and adjust positions daily, tilting toward stocks expected to perform better and scaling back or shorting those likely to lag.
+    \medskip
+    Trading is designed to be practical: signals are updated once per day (by default), but can also run at weekly or finer intervals depending on costs and preferences. The approach can operate fully automatically, or simply provide recommendations that you review and approve.
+    \medskip
+    The predictive engine is based on \textbf{regularized linear regression models} (ridge, lasso, elastic-net). These are linear in the way they combine features, which makes them stable, interpretable, and fast to retrain. Nonlinear behavior comes from the features we feed in---such as moving averages, oscillators, and squared terms---so the model captures complex patterns while staying transparent. This balance avoids the overfitting risk of more opaque models like deep neural networks, while still adapting to new data through rolling retraining.
+    \medskip
+    The model retrains on a rolling basis, so it adapts as markets change and drops signals that stop working. While it is built for the largest 500 U.S. names, the framework extends to other liquid stocks as long as sufficient data is available.
+    \medskip
+    The goal is simple: enhance returns and smooth risk by adding a disciplined, transparent decision layer. Every trade is backed by a forecast, cost check, and risk limit, with full reporting on equity curves, Sharpe ratios, drawdowns, and a trade log that shows exactly how gains and losses occur.
 
     \section*{Overview}
     This document lays out a practical trading workflow that connects machine-learning forecasts to clear trading rules. We focus on a universe of roughly 500 U.S. stocks, use daily bars, and consider multi-day horizons $n \in \{1,5,20\}$. The aim is simple: trade only when the expected benefit, after costs and risk, justifies it. We incorporate the following techniques demonstrated in the course material:
