@@ -71,16 +71,16 @@ SELECT
     b."date",
     n.ticker,
     l.gvkey,
-    f.datadate AS comp_datadate,
-    f."at"     AS comp_at,
-    f."lt"     AS comp_lt,
-    f."sale"   AS comp_sale,
-    f."ni"     AS comp_ni,
-    fac.mktrf  AS ff_mkt_rf,
-    fac.smb    AS ff_smb,
-    fac.hml    AS ff_hml,
-    fac.umd    AS ff_mom,
-    fac.rf     AS ff_rf,
+    f.datadate    AS comp_datadate,
+    f."at"        AS comp_at,
+    f."lt"        AS comp_lt,
+    f."sale"      AS comp_sale,
+    f."ni"        AS comp_ni,
+    fac.mktrf     AS ff_mkt_rf,
+    fac.smb       AS ff_smb,
+    fac.hml       AS ff_hml,
+    fac.umd       AS ff_mom,
+    fac.rf        AS ff_rf,
     ic.statpers   AS ibes_statpers,
     ic.measure    AS ibes_measure,
     ic.fiscalp    AS ibes_fiscalp,
@@ -97,6 +97,7 @@ FROM base b
 LEFT JOIN crsp_names n
   ON b.permno = n.permno
  AND b."date" BETWEEN n.namedt AND COALESCE(n.nameenddt, DATE '9999-12-31')
+ AND ({{TICKER_FILTER}})
 LEFT JOIN links l
   ON b.permno = l.permno
  AND b."date" = l."date"
@@ -109,3 +110,4 @@ LEFT JOIN ibes_cons_latest ic
   ON b.permno = ic.permno AND b."date" = ic."date"
 LEFT JOIN ibes_act_latest ia
   ON b.permno = ia.permno AND b."date" = ia."date"
+--__DATE_FILTER__

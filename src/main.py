@@ -71,9 +71,11 @@ def wrds_extract_and_join(
     use_run: str = "last",            # "last", "new", or specific run folder
     migrations_dir: str = "migrations",
     join_sql_select: str = "migrations/011_final_select.sql",
-    duckdb_memory_limit: str = "8GB", # tune as needed
+    duckdb_memory_limit: str = "8GB",
     duckdb_threads: int = 4,
     duckdb_temp_gib: str = "100GiB",  # max temp spill size
+    *,
+    tickers: list[str],
 ) -> Dict[str, Any]:
     ensure_dir(BASE_DIR)
 
@@ -160,22 +162,26 @@ def wrds_extract_and_join(
     if not os.path.isfile(join_sql_select):
         raise FileNotFoundError(f"Join SQL not found: {join_sql_select}")
 
+    if not tickers:
+        raise ValueError("tickers is mandatory: pass e.g. tickers=['AAPL','MSFT'].")
+
+    quoted = ", ".join("'" + t.replace("'", "''") + "'" for t in tickers)
+    ticker_filter_sql = f"n.ticker IN ({quoted})"
+
     select_sql_template = open(join_sql_select).read()
+    select_sql_template = select_sql_template.replace("{{TICKER_FILTER}}", ticker_filter_sql)
 
     final_dir = os.path.join(outdir, f"final_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}")
     ensure_dir(final_dir)
 
     total_rows = 0
     for yr, y_start, y_end in year_iter(start, end):
-        # inject date filter at the marker in the WITH…SELECT statement
-        # the template must contain the token: --__DATE_FILTER__
         date_filter = f"WHERE b.\"date\" >= DATE '{y_start}' AND b.\"date\" < DATE '{y_end}'"
         year_sql = select_sql_template.replace("--__DATE_FILTER__", date_filter)
 
         out_path = os.path.join(final_dir, f"year={yr}.parquet")
         print(f"[final] Writing year {yr} -> {out_path}")
 
-        # COPY will stream results to parquet (lower memory than fetching)
         con.execute(f"""
             COPY (
                 {year_sql}
@@ -184,7 +190,6 @@ def wrds_extract_and_join(
             (FORMAT PARQUET);
         """)
 
-        # optional: count rows written
         cnt = con.execute(f"SELECT COUNT(*) FROM read_parquet('{out_path}')").fetchone()[0]
         total_rows += cnt
         print(f"[final]   rows: {cnt:,}")
@@ -199,6 +204,7 @@ def wrds_extract_and_join(
         "reuse": reuse
     }
 
+
 res = wrds_extract_and_join(
     wrds_user="wboughattas",
     start="2010-01-01",
@@ -207,5 +213,6 @@ res = wrds_extract_and_join(
     duckdb_memory_limit="8GB",
     duckdb_threads=4,
     duckdb_temp_gib="200GiB",  # bump if you have disk space
+    tickers=["AAPL", "MSFT"],
 )
 print(res)
