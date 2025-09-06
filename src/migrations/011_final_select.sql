@@ -158,6 +158,7 @@ ibes_act_latest AS (
 SELECT
     b.permno,
     b."date",
+    b.ret         AS crsp_ret,
     n.ticker,
     l.gvkey,
     f.datadate    AS comp_datadate,
