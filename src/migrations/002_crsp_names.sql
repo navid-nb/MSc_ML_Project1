@@ -1,8 +1,10 @@
-SELECT n.permno, n.ticker, n.ncusip, n.namedt, n.nameenddt
-FROM crsp.stocknames n
-WHERE EXISTS (
-    SELECT 1
-    FROM crsp.dsf d
-    WHERE d.permno = n.permno
-      AND d.date BETWEEN %(start)s AND %(end)s
-);
+-- CRSP name history (trim to relevant window to shrink payload)
+SELECT
+  permno,
+  ticker,
+  ncusip,
+  namedt,
+  nameenddt
+FROM crsp.stocknames
+WHERE COALESCE(nameenddt, DATE '9999-12-31') >= %(start)s::date
+  AND namedt <= %(end)s::date;

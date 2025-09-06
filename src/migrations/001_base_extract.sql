@@ -1,3 +1,11 @@
-SELECT permno, date, ret, vol, prc, shrout
+-- CRSP daily (bounded by date)
+SELECT
+  permno,
+  "date",
+  ret,
+  vol,
+  prc,
+  shrout
 FROM crsp.dsf
-WHERE date BETWEEN %(start)s AND %(end)s;
+WHERE "date" >= %(start)s::date
+  AND "date" <  %(end)s::date;

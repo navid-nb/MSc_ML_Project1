@@ -1,17 +1,8 @@
-SELECT gvkey, tic, cusip, datadate
-FROM comp.secm s
-WHERE datadate <= %(end)s
-  AND (
-    tic IN (
-      SELECT DISTINCT n.ticker
-      FROM crsp.stocknames n
-      JOIN crsp.dsf d ON d.permno = n.permno
-      WHERE d.date BETWEEN %(start)s AND %(end)s
-    )
-    OR cusip IN (
-      SELECT DISTINCT n.ncusip
-      FROM crsp.stocknames n
-      JOIN crsp.dsf d ON d.permno = n.permno
-      WHERE d.date BETWEEN %(start)s AND %(end)s
-    )
-  );
+-- Compustat security monthly descriptor (only fields we need)
+SELECT
+  gvkey,
+  tic,
+  cusip,
+  datadate
+FROM comp.secm
+WHERE datadate < %(end)s::date;  -- we only need snapshots up to end
