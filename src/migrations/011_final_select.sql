@@ -1,70 +1,159 @@
-WITH base AS (
-    SELECT permno, "date", ret, vol, prc, shrout FROM dsf
+/* 011_final_select.sql
+   Tighten early with ticker filters inside CTEs to prevent row explosion.
+   Placeholders:
+     {{TICKER_FILTER}}  -> e.g., n.ticker IN ('AAPL','MSFT')
+   The driver will also inject a per-year date clause at the marker: --__DATE_FILTER__
+*/
+WITH
+names_filt AS (
+    -- Only the tickers we care about
+    SELECT
+        n.permno,
+        n.ticker,
+        n.ncusip,
+        n.namedt,
+        n.nameenddt
+    FROM stocknames n
+    WHERE ({{TICKER_FILTER}})
 ),
-crsp_names AS (
-    SELECT permno, ticker, ncusip, namedt, nameenddt FROM stocknames
+base AS (
+    -- CRSP daily spine restricted to our tickers (via name history banding)
+    SELECT
+        dsf.permno,
+        dsf."date",
+        dsf.ret,
+        dsf.vol,
+        dsf.prc,
+        dsf.shrout
+    FROM dsf
+    JOIN names_filt n
+      ON dsf.permno = n.permno
+     AND dsf."date" BETWEEN n.namedt AND COALESCE(n.nameenddt, DATE '9999-12-31')
+),
+gvkeys_filt AS (
+    -- GVKEY universe reachable from our tickers via COMP.SECM (tic or cusip)
+    SELECT DISTINCT s.gvkey
+    FROM secm s
+    JOIN names_filt n
+      ON s.tic  = n.ticker
+      OR s.cusip = n.ncusip
 ),
 raw_links AS (
-    -- Priority 1: CUSIP snapshot match from COMP.SECM
-    SELECT b.permno, b."date", s.gvkey, s.datadate AS snap_dt,
-           1 AS priority, 'CUSIP' AS match_type
+    -- Link PERMNO/DATE -> GVKEY using SEC M snapshots, preferring CUSIP over TICKER
+    -- Priority 1: CUSIP snapshot match
+    SELECT
+        b.permno,
+        b."date",
+        s.gvkey,
+        s.datadate AS snap_dt,
+        1 AS priority,
+        'CUSIP' AS match_type
     FROM base b
-    JOIN crsp_names n ON b.permno = n.permno
-                     AND b."date" BETWEEN n.namedt AND COALESCE(n.nameenddt, DATE '9999-12-31')
-    JOIN secm s ON n.ncusip = s.cusip
-               AND s.datadate <= b."date"
+    JOIN names_filt n
+      ON b.permno = n.permno
+     AND b."date" BETWEEN n.namedt AND COALESCE(n.nameenddt, DATE '9999-12-31')
+    JOIN secm s
+      ON n.ncusip = s.cusip
+     AND s.datadate <= b."date"
+
     UNION ALL
+
     -- Priority 2: TICKER snapshot match
-    SELECT b.permno, b."date", s.gvkey, s.datadate AS snap_dt,
-           2 AS priority, 'TICKER' AS match_type
+    SELECT
+        b.permno,
+        b."date",
+        s.gvkey,
+        s.datadate AS snap_dt,
+        2 AS priority,
+        'TICKER' AS match_type
     FROM base b
-    JOIN crsp_names n ON b.permno = n.permno
-                     AND b."date" BETWEEN n.namedt AND COALESCE(n.nameenddt, DATE '9999-12-31')
-    JOIN secm s ON n.ticker = s.tic
-               AND s.datadate <= b."date"
+    JOIN names_filt n
+      ON b.permno = n.permno
+     AND b."date" BETWEEN n.namedt AND COALESCE(n.nameenddt, DATE '9999-12-31')
+    JOIN secm s
+      ON n.ticker = s.tic
+     AND s.datadate <= b."date"
 ),
 links AS (
-    SELECT * FROM (
-        SELECT rl.*,
-               ROW_NUMBER() OVER (
-                   PARTITION BY rl.permno, rl."date"
-                   ORDER BY rl.priority ASC, rl.snap_dt DESC, rl.gvkey
-               ) AS rn
+    -- One best link per (permno, date)
+    SELECT *
+    FROM (
+        SELECT
+            rl.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY rl.permno, rl."date"
+                ORDER BY rl.priority ASC, rl.snap_dt DESC, rl.gvkey
+            ) AS rn
         FROM raw_links rl
-    ) z WHERE rn = 1
+    ) z
+    WHERE rn = 1
 ),
 comp_fund AS (
-    SELECT gvkey, datadate, "at", "lt", "sale", "ni" FROM fundq
+    -- Filter Compustat fundamentals down to only relevant GVKEYs
+    SELECT
+        q.gvkey,
+        q.datadate,
+        q."at",
+        q."lt",
+        q."sale",
+        q."ni"
+    FROM fundq q
+    WHERE q.gvkey IN (SELECT gvkey FROM gvkeys_filt)
 ),
 ibes_cons_latest AS (
-    SELECT * FROM (
-        SELECT b.permno, b."date", n.ticker, s.statpers,
-               s.measure, s.fiscalp, s.fpi, s.estflag, s.curcode,
-               ROW_NUMBER() OVER (
-                   PARTITION BY b.permno, b."date"
-                   ORDER BY s.statpers DESC
-               ) AS rn
+    -- Latest consensus <= trade date for our tickers only
+    SELECT *
+    FROM (
+        SELECT
+            b.permno,
+            b."date",
+            n.ticker,
+            s.statpers,
+            s.measure,
+            s.fiscalp,
+            s.fpi,
+            s.estflag,
+            s.curcode,
+            ROW_NUMBER() OVER (
+                PARTITION BY b.permno, b."date"
+                ORDER BY s.statpers DESC
+            ) AS rn
         FROM base b
-        JOIN crsp_names n ON b.permno = n.permno
-                         AND b."date" BETWEEN n.namedt AND COALESCE(n.nameenddt, DATE '9999-12-31')
-        JOIN ibes_stats s ON n.ticker = s.ticker
-                         AND s.statpers <= b."date"
-    ) x WHERE rn = 1
+        JOIN names_filt n
+          ON b.permno = n.permno
+         AND b."date" BETWEEN n.namedt AND COALESCE(n.nameenddt, DATE '9999-12-31')
+        JOIN ibes_stats s
+          ON n.ticker = s.ticker
+         AND s.statpers <= b."date"
+    ) x
+    WHERE rn = 1
 ),
 ibes_act_latest AS (
-    SELECT * FROM (
-        SELECT b.permno, b."date", n.ticker, a.anndats, a.anntims, a.pends,
-               a.act_measure, a.pdicity,
-               ROW_NUMBER() OVER (
-                   PARTITION BY b.permno, b."date"
-                   ORDER BY a.anndats DESC, a.anntims DESC
-               ) AS rn
+    -- Latest actuals announcement <= trade date for our tickers only
+    SELECT *
+    FROM (
+        SELECT
+            b.permno,
+            b."date",
+            n.ticker,
+            a.anndats,
+            a.anntims,
+            a.pends,
+            a.act_measure,
+            a.pdicity,
+            ROW_NUMBER() OVER (
+                PARTITION BY b.permno, b."date"
+                ORDER BY a.anndats DESC, a.anntims DESC
+            ) AS rn
         FROM base b
-        JOIN crsp_names n ON b.permno = n.permno
-                         AND b."date" BETWEEN n.namedt AND COALESCE(n.nameenddt, DATE '9999-12-31')
-        JOIN ibes_act a ON n.ticker = a.ticker
-                       AND a.anndats <= b."date"
-    ) y WHERE rn = 1
+        JOIN names_filt n
+          ON b.permno = n.permno
+         AND b."date" BETWEEN n.namedt AND COALESCE(n.nameenddt, DATE '9999-12-31')
+        JOIN ibes_act a
+          ON n.ticker = a.ticker
+         AND a.anndats <= b."date"
+    ) y
+    WHERE rn = 1
 )
 SELECT
     b.permno,
@@ -94,10 +183,9 @@ SELECT
     ia.pdicity,
     l.match_type
 FROM base b
-LEFT JOIN crsp_names n
+LEFT JOIN names_filt n
   ON b.permno = n.permno
  AND b."date" BETWEEN n.namedt AND COALESCE(n.nameenddt, DATE '9999-12-31')
- AND ({{TICKER_FILTER}})
 LEFT JOIN links l
   ON b.permno = l.permno
  AND b."date" = l."date"
@@ -110,4 +198,5 @@ LEFT JOIN ibes_cons_latest ic
   ON b.permno = ic.permno AND b."date" = ic."date"
 LEFT JOIN ibes_act_latest ia
   ON b.permno = ia.permno AND b."date" = ia."date"
+-- The driver injects per-year date bounds here:
 --__DATE_FILTER__
