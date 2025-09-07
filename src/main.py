@@ -9,7 +9,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 BASE_DIR = "wrds_extracts"
-
+# Ensure working directory is the script's directory
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 # ----------------------------
 # Helpers
 # ----------------------------
