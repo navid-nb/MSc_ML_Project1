@@ -1,7 +1,7 @@
 SELECT
-  /* --- identifiers --- */
+  
   gvkey,
-  datadate:,
+  datadate,
   fyearq,
   fqtr,
   tic,
