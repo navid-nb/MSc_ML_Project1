@@ -24,7 +24,8 @@ base AS (
         dsf.ret,
         dsf.vol,
         dsf.prc,
-        dsf.shrout
+        dsf.shrout,
+        dsf.cfacpr -- cumulative factor to adjust prices for splits and dividends
     FROM dsf
     JOIN names_filt n
       ON dsf.permno = n.permno
@@ -192,6 +193,8 @@ SELECT
     b.permno,
     b."date",
     b.ret         AS crsp_ret,
+    b.prc         AS crsp_prc,
+    b.cfacpr      AS crsp_cfacpr, -- cumulative factor to adjust prices for splits and dividends
     n.ticker,
     l.gvkey,
     f.datadate    AS comp_datadate,

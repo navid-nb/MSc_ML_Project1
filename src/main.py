@@ -65,7 +65,7 @@ def year_iter(start: str, end: str):
 # Main function
 # ----------------------------
 def wrds_extract_and_join(
-    wrds_user: str = "wboughattas",
+    wrds_user: str = "navid_namazi",
     start: str = "2000-01-01",
     end: str = "2025-01-01",
     chunksize: int = 500_000,
@@ -207,10 +207,10 @@ def wrds_extract_and_join(
 
 
 res = wrds_extract_and_join(
-    wrds_user="wboughattas",
+    wrds_user="navid_namazi",
     start="2010-01-01",
     end="2021-01-01",
-    use_run="last",  # or "new" or a specific run folder
+    use_run="new",  # last or "new" or a specific run folder
     duckdb_memory_limit="8GB",
     duckdb_threads=4,
     duckdb_temp_gib="200GiB",  # bump if you have disk space

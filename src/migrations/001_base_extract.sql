@@ -5,7 +5,8 @@ SELECT
   ret,
   vol,
   prc,
-  shrout
+  shrout,
+  dsf.cfacpr -- cumulative factor to adjust prices for splits and dividends
 FROM crsp.dsf
 WHERE "date" >= %(start)s::date
   AND "date" <  %(end)s::date;
