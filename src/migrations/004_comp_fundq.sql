@@ -1,56 +1,69 @@
-SELECT
-  
-  gvkey,
-  datadate,
-  fyearq,
-  fqtr,
-  tic,
-  cusip,
-  conm,
+-- Compustat Quarterly (FUNDQ)
+SELECT f.gvkey,                          -- firm identifier (stable)
+       f.datadate,                       -- fiscal quarter period end (accounting date)
+       f.fyearq,                         -- fiscal year
+       f.fqtr,                           -- fiscal quarter (1..4)
+       f.tic,                            -- ticker (changes possible; readability)
+       f.cusip,                          -- CUSIP (mapping; not unique/stable over time)
+       f.conm,                           -- company name (human-readable)
+       f.iid,                            -- issue ID (security-level within gvkey)
+       f.rdq,                            -- earnings announcement date (event timing / PEAD)
 
-  cshtrq     AS shs_traded_q,  -- Shares traded in quarter (proxy for volume)
-  cshoq      AS shs_out_q,     -- Common shares outstanding
-  mkvaltq    AS mkt_value_q,   -- Market value (total)
-  dvpsxq     AS div_ps_exdate_q, -- Dividends per share (ex-date, quarter)
-  adjex      AS adj_factor_ex, -- Cumulative adjustment factor by ex-date
+       -- Market / price features
+       f.prccq   AS px_close_q,          -- quarter-end close price
+       f.prchq   AS px_high_q,           -- quarter high
+       f.prclq   AS px_low_q,            -- quarter low
+       f.mkvaltq AS mkt_value_q,         -- total market value (units may vary by install)
+       f.adjex   AS adj_factor_ex,       -- cumulative adjustment factor by ex-date
+       f.dvpsxq  AS div_ps_exdate_q,     -- dividends/share (ex-date) for dividend yield / payout
 
-  /* --- income statement (valuation, margins, coverage, growth) --- */
-  saleq      AS sales_q,       -- Sales/Turnover (net)
-  revtq      AS revenue_q,     -- Revenue - Total
-  cogsq      AS cogs_q,        -- Cost of Goods Sold
-  xsgaq      AS sga_q,         -- SG&A (for F-score / quality if used later)
-  xrdq       AS rd_exp_q,      -- R&D (optional for quality/PEG adjustments)
-  oibdpq     AS ebitda_q,      -- Operating Income Before Depreciation (EBITDA)
-  oiadpq     AS ebit_q,        -- Operating Income After Depreciation (EBIT)
-  xintq      AS int_exp_q,     -- Interest expense (for coverage)
-  niq        AS net_income_q,  -- Net income (for P/E, ROE, payouts)
-  epspxq     AS eps_basic_excl_xo_q, -- EPS basic excl. extraordinary (for P/E, payout)
+       -- Trading activity / size
+       f.cshtrq  AS shs_traded_q,        -- shares traded in quarter (volume proxy)
+       f.cshoq   AS shs_out_q,           -- common shares outstanding (quarter end)
+       CASE
+           WHEN f.cshoq IS NOT NULL AND f.cshoq <> 0
+               THEN f.cshtrq / f.cshoq
+           END   AS turnover_q,          -- share turnover proxy
 
-  /* --- balance sheet (book, liquidity, leverage, Z/F-score) --- */
-  atq        AS assets_total_q,
-  ltq        AS liab_total_q,
-  ceqq       AS common_equity_q,   -- Book equity (for P/B, ROE)
-  seqq       AS sh_equity_total_q, -- Total equity (alternative book)
-  actq       AS cur_assets_q,      -- Current assets
-  lctq       AS cur_liab_q,        -- Current liabilities
-  cheq       AS cash_sti_q,        -- Cash & short-term investments
-  invtq      AS inventory_q,       -- Inventory (quick ratio, inv. turnover)
-  rectq      AS receivables_q,     -- Receivables (A/R turnover)
-  ppentq     AS ppe_net_q,         -- PPE (Z-score component)
-  wcapq      AS working_cap_q,     -- Working capital (Z-score component)
-  req        AS retained_earn_q,   -- Retained earnings (Z-score; F-score)
+       -- Income statement (profitability, margins, growth)
+       f.saleq   AS sales_q,             -- sales (net)
+       f.revtq   AS revenue_q,           -- revenue (total)
+       f.cogsq   AS cogs_q,              -- cost of goods sold
+       f.xsgaq   AS sga_q,               -- SG&A (quality/F-score inputs)
+       f.xrdq    AS rd_exp_q,            -- R&D expense (innovation/mispricing proxies)
+       f.oibdpq  AS ebitda_q,            -- operating income before depreciation
+       f.oiadpq  AS ebit_q,              -- operating income after depreciation
+       f.xintq   AS int_exp_q,           -- interest expense (coverage)
+       f.niq     AS net_income_q,        -- net income
+       f.epspxq  AS eps_basic_excl_xo_q, -- EPS (basic, excl. extraordinary)
 
-  /* --- capital structure (EV, leverage, net debt / EBITDA) --- */
-  dlttq      AS debt_lt_q,      -- Long-term debt
-  dlcq       AS debt_curr_q,    -- Current debt
-  npq        AS notes_pay_q,    -- Notes payable (optional ST debt detail)
+       -- Balance sheet (book, liquidity, leverage, Z/F-score inputs)
+       f.atq     AS assets_total_q,      -- total assets
+       f.ltq     AS liab_total_q,        -- total liabilities
+       f.ceqq    AS common_equity_q,     -- common/ordinary equity (book)
+       f.seqq    AS sh_equity_total_q,   -- total shareholders’ equity
+       f.actq    AS cur_assets_q,        -- current assets
+       f.lctq    AS cur_liab_q,          -- current liabilities
+       f.cheq    AS cash_sti_q,          -- cash & short-term investments
+       f.invtq   AS inventory_q,         -- inventory (turnover/quality)
+       f.rectq   AS receivables_q,       -- receivables (accruals/turnover)
+       f.ppentq  AS ppe_net_q,           -- property, plant & equipment (net)
+       f.wcapq   AS working_cap_q,       -- working capital
+       f.req     AS retained_earn_q,     -- retained earnings (profitability persistence)
 
-  /* --- payouts / buybacks (payout ratio, net payout yield) --- */
-  cshopq     AS shs_repurchased_q, -- Total shares repurchased (quarter)
-  prcraq     AS avg_repurchase_px_q -- Avg repurchase price per share (quarter)
-FROM comp.fundq
-WHERE datadate >= %(start)s::date
-  AND datadate <  %(end)s::date
-  -- (optional hygiene you can uncomment later)
-  -- AND finalq = 'Y' AND consol = 'C' AND datafmt = 'STD'
-ORDER BY gvkey, datadate;
+       -- Capital structure (leverage / financing frictions)
+       f.dlttq   AS debt_lt_q,           -- long-term debt
+       f.dlcq    AS debt_curr_q,         -- current (short-term) debt
+       f.npq     AS notes_pay_q,         -- notes payable (extra ST debt detail)
+
+       -- Payouts / buybacks (net payout yield, equity issuance)
+       f.cshopq  AS shs_repurchased_q,   -- total shares repurchased (quarter)
+       f.prcraq  AS avg_repurchase_px_q  -- average repurchase price per share (quarter)
+
+FROM comp.fundq AS f
+WHERE f.datadate >= % (start)s::date
+  AND f.datadate <  %(end)s::date
+    AND f.finalq = 'Y'          -- keep finalized filings
+    AND f.consol = 'C'          -- consolidated
+    AND f.datafmt = 'STD'       -- standard format
+ORDER BY f.gvkey, f.datadate;
