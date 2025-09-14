@@ -62,6 +62,6 @@ def make_run_folder(base_dir: str, use_run: str) -> tuple[str, str, bool]:
         out_dir_name = use_run
         reuse = os.path.isdir(os.path.join(base_dir, out_dir_name))
 
-    outdir = os.path.join(base_dir, out_dir_name)
-    ensure_dir(outdir)
-    return outdir, out_dir_name, reuse
+    out_dir = os.path.join(base_dir, out_dir_name)
+    ensure_dir(out_dir)
+    return out_dir, out_dir_name, reuse
