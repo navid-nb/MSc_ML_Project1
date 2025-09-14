@@ -1,66 +1,10 @@
 import os
-import datetime as dt
 from typing import Dict, Any, Optional, List
 
 import pandas as pd
 import wrds
 import pyarrow as pa
 import pyarrow.parquet as pq
-
-# -----------------------
-# Run management
-# -----------------------
-
-def list_runs(base_dir: str) -> List[str]:
-    if not os.path.isdir(base_dir):
-        return []
-    runs = [
-        d for d in os.listdir(base_dir)
-        if os.path.isdir(os.path.join(base_dir, d)) and d.startswith("run_")
-    ]
-    runs.sort()
-    return runs
-
-def latest_run(base_dir: str) -> Optional[str]:
-    runs = list_runs(base_dir)
-    return runs[-1] if runs else None
-
-def ensure_dir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
-
-def make_run_folder(base_dir: str, use_run: str) -> tuple[str, str, bool]:
-    """
-    Decide run folder name and create it if needed.
-    Returns (abs_path, name, reuse_flag).
-
-    - use_run == "new":     create a fresh timestamped folder (reuse=False)
-    - use_run == "last":    reuse the latest run if exists, else create new
-    - else:                 treat as explicit folder name; reuse if it exists
-    """
-    if use_run == "new":
-        stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        outdir_name = f"run_{stamp}"
-        reuse = False
-    elif use_run == "last":
-        last = latest_run(base_dir)
-        if last:
-            outdir_name = last
-            reuse = True
-        else:
-            stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-            outdir_name = f"run_{stamp}"
-            reuse = False
-    else:
-        outdir_name = use_run
-        reuse = os.path.isdir(os.path.join(base_dir, outdir_name))
-
-    outdir = os.path.join(base_dir, outdir_name)
-    ensure_dir(outdir)
-    return outdir, outdir_name, reuse
-
-# -----------------------
-# Extraction
-# -----------------------
 
 def wrds_connect(wrds_user: str) -> wrds.Connection:
     return wrds.Connection(wrds_username=wrds_user, verbose=True)
