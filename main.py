@@ -1,23 +1,23 @@
 import os
 from typing import Dict, Any
 
-from helpers.sql import (
+from src.helpers.sql import (
     wrds_connect,
     extract_artifacts,
     assert_artifacts_present,
 )
-from helpers.extract import ensure_dir, make_run_folder
+from src.helpers.extract import ensure_dir, make_run_folder
 
 BASE_DIR = "wrds_extracts"
 
 ARTIFACTS = [
-    ("migrations/001_base_extract.sql",  "dsf.parquet"),
-    ("migrations/002_crsp_names.sql",    "stocknames.parquet"),
-    ("migrations/003_comp_secm.sql",     "secm.parquet"),
-    ("migrations/004_comp_fundq.sql",    "fundq.parquet"),
-    ("migrations/005_ff_factors.sql",    "ff.parquet"),
-    ("migrations/006_ibes_statsumu.sql", "ibes_stats.parquet"),
-    ("migrations/007_ibes_actu.sql",     "ibes_act.parquet"),
+    ("src/migrations/001_base_extract.sql",  "dsf.parquet"),
+    ("src/migrations/002_crsp_names.sql",    "stocknames.parquet"),
+    ("src/migrations/003_comp_secm.sql",     "secm.parquet"),
+    ("src/migrations/004_comp_fundq.sql",    "fundq.parquet"),
+    ("src/migrations/005_ff_factors.sql",    "ff.parquet"),
+    ("src/migrations/006_ibes_statsumu.sql", "ibes_stats.parquet"),
+    ("src/migrations/007_ibes_actu.sql",     "ibes_act.parquet"),
 ]
 
 def wrds_extract_raw(
