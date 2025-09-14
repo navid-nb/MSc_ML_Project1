@@ -48,3 +48,4 @@ if __name__ == "__main__":
     print(f"[final] df_prices shape={df_prices.shape}")
     print(f"[final] index={list(df_prices.index.names)}")
     print(f"[final] columns={list(df_prices.columns)}")
+    print(f"[final] df_prices head=2\n{df_prices.head(2)}")

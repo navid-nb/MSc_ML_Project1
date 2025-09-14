@@ -4,6 +4,8 @@ from typing import Dict
 import numpy as np
 import pandas as pd
 
+pd.set_option("display.max_columns", None)
+
 
 def parquet_to_df(artifacts: Dict[str, str], name: str) -> pd.DataFrame:
     """
