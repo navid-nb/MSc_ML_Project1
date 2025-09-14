@@ -3,14 +3,23 @@ from src.helpers.data_cleanup import (
     impute_negative_crsp_factors_and_price,
     join_dsf_with_stocknames,
     join_prices_with_ff,
+    join_prices_with_ibes,
+    join_prices_with_ibes_actu,
     parquet_to_df,
     post_join_qa_prices,
     post_join_qa_prices_with_ff,
+    post_join_qa_prices_with_ibes,
+    post_join_qa_prices_with_ibes_actu,
     pre_qa_dsf,
     pre_qa_ff,
+    pre_qa_ibes_actu,
+    pre_qa_ibes_statsumu,
     pre_qa_stocknames,
+    prepare_ibes_actu_for_daily_merge,
+    prepare_ibes_for_daily_merge,
 )
 from src.helpers.data_extraction import wrds_extract_raw
+from src.helpers.model_matrix import build_model_matrix, null_report
 
 if __name__ == "__main__":
     res = wrds_extract_raw(
@@ -18,7 +27,7 @@ if __name__ == "__main__":
         start="2020-01-01",
         end="2021-01-01",
         chunk_size=500_000,
-        use_run="last",  # "last" | "new" | specific folder like "run_20250101_120000"
+        use_run="last",
         base_dir="wrds_extracts",
         artifacts=[
             ("src/migrations/001_base_extract.sql", "dsf.parquet"),
@@ -30,27 +39,49 @@ if __name__ == "__main__":
     )
     print(res)
 
-    # load + index columns
+    # Load
     dsf = parquet_to_df(res["artifacts"], "dsf.parquet")
-    dsf = ensure_index(dsf, ["permno", "date"], keep_cols=False)
     stock_names = parquet_to_df(res["artifacts"], "stocknames.parquet")
     ff = parquet_to_df(res["artifacts"], "ff.parquet")
+    ibes = parquet_to_df(res["artifacts"], "ibes_stats.parquet")
+    ibes_act = parquet_to_df(res["artifacts"], "ibes_act.parquet")
 
-    # QA source data + impute
+    # Index & QA
+    dsf = ensure_index(dsf, ["permno", "date"], keep_cols=False)
     pre_qa_dsf(dsf)
     pre_qa_stocknames(stock_names)
     dsf = impute_negative_crsp_factors_and_price(dsf)
-    pre_qa_ff(ff)
 
-    # Joining tables, index columns and QA output
+    # Prices + names
     df_prices = join_dsf_with_stocknames(dsf, stock_names)
     df_prices = ensure_index(df_prices, ["permno", "date"], keep_cols=False)
     post_join_qa_prices(df_prices)
 
-    df_prices_with_ff = join_prices_with_ff(df_prices, ff)
-    post_join_qa_prices_with_ff(df_prices_with_ff)
+    # FF
+    pre_qa_ff(ff)
+    df_prices = join_prices_with_ff(df_prices, ff)
+    post_join_qa_prices_with_ff(df_prices)
 
-    print(f"[final] df_prices shape={df_prices_with_ff.shape}")
-    print(f"[final] index={list(df_prices_with_ff.index.names)}")
-    print(f"[final] columns={list(df_prices_with_ff.columns)}")
-    print(f"[final] head=2\n{df_prices_with_ff.head(2)}")
+    # IBES statsumu (EPS)
+    pre_qa_ibes_statsumu(ibes)
+    ibes_daily = prepare_ibes_for_daily_merge(ibes)
+    df_prices = join_prices_with_ibes(df_prices, ibes_daily)
+    post_join_qa_prices_with_ibes(df_prices)
+
+    # IBES actuals (EPS)
+    pre_qa_ibes_actu(ibes_act)
+    ibes_act_daily = prepare_ibes_actu_for_daily_merge(ibes_act)
+    df_prices = join_prices_with_ibes_actu(df_prices, ibes_act_daily)
+    post_join_qa_prices_with_ibes_actu(df_prices)
+
+    model_df = build_model_matrix(df_prices)
+
+    print(f"[final] df_prices shape={df_prices.shape}")
+    print(f"[final] index={list(df_prices.index.names)}")
+    print(f"[final] columns={list(df_prices.columns)}")
+
+    print(f"[model] shape={model_df.shape}")
+    print(f"[model] index={list(model_df.index.names)}")
+    print(f"[model] columns={list(model_df.columns)}")
+
+    print(null_report(model_df))

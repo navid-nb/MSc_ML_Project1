@@ -469,3 +469,287 @@ def post_join_qa_prices_with_ff(df: pd.DataFrame) -> None:
             miss = float(df[col].isna().mean())
             if miss:
                 print(f"[info] df_prices_ff: {miss:.2%} missing {col}.")
+
+
+def pre_qa_ibes_statsumu(ibes: pd.DataFrame) -> None:
+    """
+    Basic hygiene for IBES statsumu EPS (unadjusted):
+      - required columns
+      - 'stat_date' datetime64
+      - identify potential duplication granularity
+    """
+    req = {
+        "official_ticker",  # oftic
+        "stat_date",  # statpers
+        "periodicity",  # A/Q/S
+        "fpi",  # horizon indicator
+        "n_analysts",  # numest
+        "cons_mean",  # meanest
+    }
+    missing = req - set(ibes.columns)
+    if missing:
+        raise AssertionError(f"ibes_stats missing columns: {missing}")
+
+    _ensure_datetime_cols(ibes, ["stat_date"], "ibes_stats")
+
+    # Show how many rows per (official_ticker, stat_date)
+    grp = ibes.groupby(["official_ticker", "stat_date"], dropna=False).size()
+    multi = int((grp > 1).sum())
+    if multi:
+        print(
+            f"[info] ibes_stats: {multi:,} (official_ticker, stat_date) pairs have >1 row "
+            f"(multiple horizons/periodicities). Will collapse before join."
+        )
+
+
+def prepare_ibes_for_daily_merge(ibes: pd.DataFrame) -> pd.DataFrame:
+    """
+    Collapse IBES to one row per (official_ticker, stat_date) to avoid row inflation when
+    joining daily prices. Preference order:
+      1) periodicity='Q' over others
+      2) smallest fpi (closest horizon)
+      3) highest n_analysts (more robust consensus)
+      4) if tie, keep first occurrence (stable)
+    Only keeps commonly useful columns for modeling; you can add more as needed.
+    """
+    ib = ibes.copy()
+
+    # Rank preference: Q first, then S, then A (map missing to worst)
+    per_rank = {"Q": 0, "S": 1, "A": 2}
+    ib["_per_rank"] = ib["periodicity"].map(per_rank).fillna(3).astype(int)
+
+    # fpi can be string in IBES; make it numeric for proper ordering when possible
+    with pd.option_context("mode.chained_assignment", None):
+        ib["_fpi_num"] = pd.to_numeric(ib["fpi"], errors="coerce")
+
+    # Build a sort key
+    ib = ib.sort_values(
+        by=["official_ticker", "stat_date", "_per_rank", "_fpi_num", "n_analysts"],
+        ascending=[True, True, True, True, False],
+        kind="mergesort",  # stable
+    )
+
+    # Deduplicate to the best row per (official_ticker, stat_date)
+    ib = ib.drop_duplicates(subset=["official_ticker", "stat_date"], keep="first")
+
+    # Keep a lean set of columns (expand as needed)
+    keep = [
+        "official_ticker",
+        "stat_date",
+        "currency",
+        "periodicity",
+        "fpi",
+        "n_analysts",
+        "n_up",
+        "n_down",
+        "cons_mean",
+        "cons_median",
+        "cons_stdev",
+        "cons_high",
+        "cons_low",
+        "fpe_date",
+        "cons_cv",
+        "cons_range_pct",
+    ]
+    keep = [c for c in keep if c in ib.columns]
+    ib = ib[keep].copy()
+
+    return ib
+
+
+def join_prices_with_ibes(df_prices: pd.DataFrame, ibes_daily: pd.DataFrame) -> pd.DataFrame:
+    """
+    Join daily prices with IBES consensus summary (one row per (official_ticker, stat_date)).
+    Keys:
+      - df_prices: join on (ticker == official_ticker) and (date == stat_date)
+    Guarantees:
+      - Left join; no row inflation
+      - Restores original index of df_prices if present
+    """
+    # Work in columns for merge clarity; remember original index
+    base_index_names = list(df_prices.index.names or [])
+    need_reset = any(base_index_names)
+    df_tmp = df_prices.reset_index() if need_reset else df_prices.copy()
+
+    # Ensure date columns are datetime64
+    _ensure_datetime_cols(df_tmp, ["date"], "df_prices")
+    _ensure_datetime_cols(ibes_daily, ["stat_date"], "ibes_stats")
+
+    pre_rows = int(df_tmp.shape[0])
+    if "ticker" not in df_tmp.columns:
+        print("[warn] df_prices has no 'ticker' column; IBES match will be empty.")
+    if "official_ticker" not in ibes_daily.columns:
+        raise AssertionError("ibes_daily lacks 'official_ticker' after preparation.")
+
+    merged = df_tmp.merge(
+        ibes_daily,
+        left_on=["ticker", "date"],
+        right_on=["official_ticker", "stat_date"],
+        how="left",
+        suffixes=("", "_ibes"),
+    )
+
+    # Ensure no row inflation
+    if merged.shape[0] != pre_rows:
+        raise AssertionError(
+            f"df_prices <- ibes merge changed row count: {merged.shape[0]:,} vs {pre_rows:,}"
+        )
+
+    # Drop redundant join keys from IBES side
+    merged = merged.drop(columns=["official_ticker", "stat_date"], errors="ignore")
+
+    # Restore original index
+    if need_reset:
+        merged = merged.set_index(base_index_names)
+
+    return merged
+
+
+def post_join_qa_prices_with_ibes(df: pd.DataFrame) -> None:
+    """
+    After adding IBES fields:
+      - Still unique on (permno,date)?
+      - Coverage for consensus fields
+    """
+    idx_names = list(df.index.names or [])
+    if {"permno", "date"}.issubset(idx_names):
+        pass
+    else:
+        check_key_dupes(df, ["permno", "date"], "df_prices(+ibes)")
+
+    # Coverage sanity
+    for col in ["n_analysts", "cons_mean", "cons_stdev", "cons_cv", "fpe_date"]:
+        if col in df.columns:
+            miss = float(df[col].isna().mean())
+            if miss > 0:
+                print(f"[info] df_prices(+ibes): {miss:.1%} missing in {col}.")
+
+
+def pre_qa_ibes_actu(ibes_act: pd.DataFrame) -> None:
+    """
+    Hygiene for IBES actuals (EPS):
+      - required columns
+      - 'anndats' datetime64
+      - show multi-rows per (official_ticker, anndats)
+    """
+    req = {"oftic", "anndats", "pdicity", "act_measure", "act_value", "usfirm"}
+    missing = req - set(ibes_act.columns)
+    if missing:
+        raise AssertionError(f"ibes_act missing columns: {missing}")
+
+    _ensure_datetime_cols(ibes_act, ["anndats"], "ibes_act")
+
+    multi = (ibes_act.groupby(["oftic", "anndats"], dropna=False).size() > 1).sum()
+    if multi:
+        print(
+            f"[info] ibes_act: {multi:,} (oftic, anndats) pairs have >1 row "
+            f"(periodicity/dup loads). Will collapse before join."
+        )
+
+
+def prepare_ibes_actu_for_daily_merge(ibes_act: pd.DataFrame) -> pd.DataFrame:
+    """
+    Collapse to one row per (official_ticker, anndats) to avoid row inflation.
+    Preference:
+      1) quarterly 'Q' over others
+      2) most recent activation date (actdats) if available
+      3) keep first (stable)
+    Keeps a lean set of useful columns.
+    """
+    ib = ibes_act.copy()
+
+    # rename to align with prices side & consistency
+    ib = ib.rename(columns={"oftic": "official_ticker", "anndats": "ann_date"})
+
+    # periodicity rank: Q better than A; unknown worst
+    per_rank = {"Q": 0, "A": 1}
+    ib["_per_rank"] = ib["pdicity"].map(per_rank).fillna(2).astype(int)
+
+    # actdats to datetime (sometimes already)
+    if "actdats" in ib.columns and not np.issubdtype(ib["actdats"].dtype, np.datetime64):
+        with pd.option_context("mode.chained_assignment", None):
+            ib["actdats"] = pd.to_datetime(ib["actdats"], errors="coerce")
+
+    ib = ib.sort_values(
+        by=["official_ticker", "ann_date", "_per_rank", "actdats"],
+        ascending=[True, True, True, True],
+        kind="mergesort",
+    )
+
+    ib = ib.drop_duplicates(subset=["official_ticker", "ann_date"], keep="first")
+
+    keep = [
+        "official_ticker",
+        "ann_date",
+        "pdicity",
+        "act_measure",
+        "act_value",
+        "curr_act",
+        "anntims",
+        "actdats",
+        "acttims",
+        "pends",  # fiscal period end
+    ]
+    keep = [c for c in keep if c in ib.columns]
+    return ib[keep].copy()
+
+
+def join_prices_with_ibes_actu(
+    df_prices: pd.DataFrame, ibes_act_daily: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Left-join daily prices with IBES actuals (EPS):
+      keys: (ticker == official_ticker) & (date == ann_date)
+    No row inflation; restores original index.
+    """
+    base_index = list(df_prices.index.names or [])
+    need_reset = any(base_index)
+    left = df_prices.reset_index() if need_reset else df_prices.copy()
+
+    _ensure_datetime_cols(left, ["date"], "df_prices")
+    _ensure_datetime_cols(ibes_act_daily, ["ann_date"], "ibes_act")
+
+    pre_rows = int(left.shape[0])
+
+    if "ticker" not in left.columns:
+        print("[warn] df_prices has no 'ticker'; IBES actuals match will be empty.")
+
+    merged = left.merge(
+        ibes_act_daily,
+        left_on=["ticker", "date"],
+        right_on=["official_ticker", "ann_date"],
+        how="left",
+        suffixes=("", "_act"),
+    )
+
+    if merged.shape[0] != pre_rows:
+        raise AssertionError(
+            f"df_prices <- ibes_act merge changed row count: {merged.shape[0]:,} vs {pre_rows:,}"
+        )
+
+    merged = merged.drop(columns=["official_ticker", "ann_date"], errors="ignore")
+    if need_reset:
+        merged = merged.set_index(base_index)
+    return merged
+
+
+def post_join_qa_prices_with_ibes_actu(df: pd.DataFrame) -> None:
+    """
+    After adding IBES actuals:
+      - Still unique on (permno,date)?
+      - Coverage of EPS actuals
+      - Heads-up on after/before close timing
+    """
+    idx_names = list(df.index.names or [])
+    if not {"permno", "date"}.issubset(idx_names):
+        check_key_dupes(df, ["permno", "date"], "df_prices(+ibes_act)")
+
+    if "act_value" in df.columns:
+        miss = float(df["act_value"].isna().mean())
+        print(f"[info] df_prices(+ibes_act): {miss:.1%} missing in act_value.")
+
+    # Optional: counts by announcement time bucket (if present)
+    if "anntims" in df.columns:
+        vc = df["anntims"].dropna().astype(str).str.lower().value_counts().head(5)
+        if not vc.empty:
+            print(f"[info] ibes_act announcement time top values:\n{vc}")
