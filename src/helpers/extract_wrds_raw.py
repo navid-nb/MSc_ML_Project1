@@ -14,10 +14,7 @@ def wrds_extract_raw(
     base_dir: str,
     artifacts: List[Tuple[str, str]],
 ) -> Dict[str, Any]:
-    """
-    If use_run == "new": extract ALL artifacts (overwrite if they exist).
-    Else (reuse an existing run): assert ALL artifacts are present; do not extract.
-    """
+
     ensure_dir(base_dir)
     run_dir, run_name, reuse = make_run_folder(base_dir, use_run)
     print(f"[info] Using run folder: {run_name} (reuse={reuse})")
