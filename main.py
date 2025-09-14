@@ -1,31 +1,28 @@
 import os
-from typing import Dict, Any
+from typing import Any, Dict
 
-from src.helpers.sql import (
-    wrds_connect,
-    extract_artifacts,
-    assert_artifacts_present,
-)
-from src.helpers.extract import ensure_dir, make_run_folder, delete_dir
+from src.helpers.extract import delete_dir, ensure_dir, make_run_folder
+from src.helpers.sql import assert_artifacts_present, extract_artifacts, wrds_connect
 
 BASE_DIR = "wrds_extracts"
 
 ARTIFACTS = [
-    ("src/migrations/001_base_extract.sql",  "dsf.parquet"),
-    ("src/migrations/002_crsp_names.sql",    "stocknames.parquet"),
-    ("src/migrations/003_comp_secm.sql",     "secm.parquet"),
-    ("src/migrations/004_comp_fundq.sql",    "fundq.parquet"),
-    ("src/migrations/005_ff_factors.sql",    "ff.parquet"),
+    ("src/migrations/001_base_extract.sql", "dsf.parquet"),
+    ("src/migrations/002_crsp_names.sql", "stocknames.parquet"),
+    ("src/migrations/003_comp_secm.sql", "secm.parquet"),
+    ("src/migrations/004_comp_fundq.sql", "fundq.parquet"),
+    ("src/migrations/005_ff_factors.sql", "ff.parquet"),
     ("src/migrations/006_ibes_statsumu.sql", "ibes_stats.parquet"),
-    ("src/migrations/007_ibes_actu.sql",     "ibes_act.parquet"),
+    ("src/migrations/007_ibes_actu.sql", "ibes_act.parquet"),
 ]
+
 
 def wrds_extract_raw(
     wrds_user: str,
     start: str,
     end: str,
     chunk_size: int,
-    use_run: str,  # "new", "last", or a specific run folder name
+    use_run: str,
 ) -> Dict[str, Any]:
     """
     If use_run == "new": extract ALL artifacts (overwrite if exist).
@@ -33,16 +30,19 @@ def wrds_extract_raw(
     """
     ensure_dir(BASE_DIR)
     out_dir, out_dir_name, reuse = make_run_folder(BASE_DIR, use_run)
-    print(f"[info] Using run folder: {out_dir_name} (reuse={reuse})")
 
     if not reuse:
         conn = None
         try:
             conn = wrds_connect(wrds_user)
             params = {"start": start, "end": end}
-            extract_artifacts(conn, ARTIFACTS, out_dir, params=params, chunk_size=chunk_size, force=True)
-        except Exception as e:
-            if os.path.commonpath([os.path.abspath(out_dir), os.path.abspath(BASE_DIR)]) == os.path.abspath(BASE_DIR):
+            extract_artifacts(
+                conn, ARTIFACTS, out_dir, params=params, chunk_size=chunk_size, force=True
+            )
+        except Exception:
+            if os.path.commonpath(
+                [os.path.abspath(out_dir), os.path.abspath(BASE_DIR)]
+            ) == os.path.abspath(BASE_DIR):
                 delete_dir(out_dir)
             raise
         finally:
@@ -50,16 +50,12 @@ def wrds_extract_raw(
                 conn.close()
     else:
         assert_artifacts_present(out_dir, ARTIFACTS)
-        print("[info] Reuse mode: all required Parquet files are present. No extraction performed.")
 
     produced = {
         parq: os.path.join(out_dir, parq)
         for _, parq in ARTIFACTS
         if os.path.isfile(os.path.join(out_dir, parq))
     }
-    print("[result] Parquet files:")
-    for name, path in produced.items():
-        print(f"{name}: {path}")
 
     return {
         "run_folder": out_dir,

@@ -1,29 +1,34 @@
-import os
 import datetime as dt
+import os
 import shutil
-from typing import Optional, List
+from typing import List, Optional
 
 
 def list_runs(base_dir: str) -> List[str]:
     if not os.path.isdir(base_dir):
         return []
     runs = [
-        d for d in os.listdir(base_dir)
+        d
+        for d in os.listdir(base_dir)
         if os.path.isdir(os.path.join(base_dir, d)) and d.startswith("run_")
     ]
     runs.sort()
     return runs
 
+
 def latest_run(base_dir: str) -> Optional[str]:
     runs = list_runs(base_dir)
     return runs[-1] if runs else None
 
+
 def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
+
 
 def delete_dir(path: str) -> None:
     if os.path.isdir(path):
         shutil.rmtree(path)
+
 
 def make_run_folder(base_dir: str, use_run: str) -> tuple[str, str, bool]:
     """

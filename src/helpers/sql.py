@@ -1,16 +1,23 @@
 import os
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
-import wrds
 import pyarrow as pa
 import pyarrow.parquet as pq
+import wrds
+
 
 def wrds_connect(wrds_user: str) -> wrds.Connection:
     return wrds.Connection(wrds_username=wrds_user, verbose=True)
 
-def query_to_parquet(conn: wrds.Connection, sql_path: str, out_path: str,
-                     params: Optional[Dict[str, Any]] = None, chunk_size: int = 500_000) -> None:
+
+def query_to_parquet(
+    conn: wrds.Connection,
+    sql_path: str,
+    out_path: str,
+    params: Optional[Dict[str, Any]] = None,
+    chunk_size: int = 500_000,
+) -> None:
     sql = open(sql_path).read()
     params = params or {}
     writer = None
@@ -22,12 +29,15 @@ def query_to_parquet(conn: wrds.Connection, sql_path: str, out_path: str,
     if writer is not None:
         writer.close()
 
-def extract_artifacts(conn: wrds.Connection,
-                      artifacts: List[tuple[str, str]],
-                      outdir: str,
-                      params: Optional[Dict[str, Any]] = None,
-                      chunk_size: int = 500_000,
-                      force: bool = False) -> None:
+
+def extract_artifacts(
+    conn: wrds.Connection,
+    artifacts: List[tuple[str, str]],
+    outdir: str,
+    params: Optional[Dict[str, Any]] = None,
+    chunk_size: int = 500_000,
+    force: bool = False,
+) -> None:
     """
     Run all SQL files to Parquet.
 
@@ -45,6 +55,7 @@ def extract_artifacts(conn: wrds.Connection,
         print(f"[extract] {sqlfile} -> {outfile}")
         query_to_parquet(conn, sqlfile, outpath, params=params, chunk_size=chunk_size)
         print(f"[ok] Saved {outfile}")
+
 
 def assert_artifacts_present(outdir: str, artifacts: List[tuple[str, str]]) -> None:
     """Raise AssertionError listing any missing Parquet outputs."""
