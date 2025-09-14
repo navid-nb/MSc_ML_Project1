@@ -1,7 +1,7 @@
 import os
 from typing import Any, Dict
 
-from src.helpers.extract import delete_dir, ensure_dir, make_run_folder
+from src.helpers.extract import ensure_dir, make_run_folder, safe_delete_dir
 from src.helpers.sql import assert_artifacts_present, extract_artifacts, wrds_connect
 
 BASE_DIR = "wrds_extracts"
@@ -42,10 +42,7 @@ def wrds_extract_raw(
                 conn, ARTIFACTS, out_dir, params=params, chunk_size=chunk_size, force=True
             )
         except Exception:
-            if os.path.commonpath(
-                [os.path.abspath(out_dir), os.path.abspath(BASE_DIR)]
-            ) == os.path.abspath(BASE_DIR):
-                delete_dir(out_dir)
+            safe_delete_dir(out_dir, BASE_DIR)
             raise
         finally:
             if conn is not None:

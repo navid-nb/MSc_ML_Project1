@@ -25,9 +25,15 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
-def delete_dir(path: str) -> None:
-    if os.path.isdir(path):
-        shutil.rmtree(path)
+def safe_delete_dir(path: str, base: str) -> None:
+    abs_path = os.path.abspath(path)
+    abs_base = os.path.abspath(base)
+
+    if os.path.commonpath([abs_path, abs_base]) != abs_base:
+        raise ValueError(f"Refusing to delete {abs_path}: not inside {abs_base}")
+
+    if os.path.isdir(abs_path):
+        shutil.rmtree(abs_path)
 
 
 def make_run_folder(base_dir: str, use_run: str) -> tuple[str, str, bool]:
