@@ -6,8 +6,8 @@ if __name__ == "__main__":
         start="2020-01-01",
         end="2021-01-01",
         chunk_size=500_000,
-        use_run="last",  # "last" or "new" or a specific folder like "run_20250101_120000"
-        out_dir="wrds_extracts",
+        use_run="new",  # "last" or "new" or a specific folder like "run_20250101_120000"
+        base_dir="wrds_extracts",
         artifacts=[
             ("src/migrations/001_base_extract.sql", "dsf.parquet"),
             ("src/migrations/002_crsp_names.sql", "stocknames.parquet"),
