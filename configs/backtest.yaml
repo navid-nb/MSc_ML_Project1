@@ -1,5 +1,0 @@
-cash: 10000.0
-commission: 0.0005
-split_ratio: 0.7
-allow_short: true
-finalize_trades: true

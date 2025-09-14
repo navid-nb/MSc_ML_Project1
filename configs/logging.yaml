@@ -1,3 +1,0 @@
-sink: "stderr"
-level: "INFO"
-format: "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level}</level> | {message}"

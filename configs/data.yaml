@@ -1,6 +1,0 @@
-default_source: "yfinance"
-yfinance:
-  default_symbol: "AAPL,MSFT,SPY,NVDA,INTC"
-  default_interval: "1d"
-  start: "2019-01-01"
-  end:
