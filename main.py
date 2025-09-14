@@ -14,6 +14,8 @@ ARTIFACTS = [
     ("src/migrations/005_ff_factors.sql", "ff.parquet"),
     ("src/migrations/006_ibes_statsumu.sql", "ibes_stats.parquet"),
     ("src/migrations/007_ibes_actu.sql", "ibes_act.parquet"),
+    ("src/migrations/008_fisd_rating.sql", "fisd_rating.parquet"),
+    ("src/migrations/009_cboe_cboe.sql", "cboe.parquet"),
 ]
 
 
