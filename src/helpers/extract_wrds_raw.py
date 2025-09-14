@@ -1,8 +1,8 @@
 import os
 from typing import Any, Dict
 
-from src.helpers.extract import ensure_dir, make_run_folder, safe_delete_dir
-from src.helpers.sql import assert_artifacts_present, extract_artifacts, wrds_connect
+from src.helpers._extract import ensure_dir, make_run_folder, safe_delete_dir
+from src.helpers._sql import assert_artifacts_present, extract_artifacts, wrds_connect
 
 
 def wrds_extract_raw(
