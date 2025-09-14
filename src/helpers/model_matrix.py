@@ -167,9 +167,48 @@ def null_report(df: pd.DataFrame, sort: bool = True) -> pd.DataFrame:
     """
     total = len(df)
     report = df.isna().sum().reset_index().rename(columns={"index": "column", 0: "n_null"})
-    report["pct_null"] = report["n_null"] / total * 100
+    report["pct_null"] = (report["n_null"] / total * 100).round(2)
 
     if sort:
         report = report.sort_values("pct_null", ascending=False).reset_index(drop=True)
 
     return report
+
+
+def fillna_by_permno(df: pd.DataFrame, strategy: str = "median") -> pd.DataFrame:
+    """
+    Fill missing values within each permno group.
+    Steps:
+      1. Forward fill
+      2. Backward fill
+      3. If still null, replace with fallback (zero or column mean)
+
+    Parameters
+    ----------
+    df : DataFrame
+    strategy : {"zero", "mean", "median"}
+        How to handle values still missing after ffill+bfill.
+
+    Returns
+    -------
+    DataFrame with nulls filled.
+    """
+    out = df.copy()
+    if "permno" in (df.index.names or []):
+        out = out.groupby(level="permno").apply(lambda g: g.ffill().bfill())
+    elif "permno" in df.columns:
+        out = out.groupby("permno").apply(lambda g: g.ffill().bfill()).reset_index(drop=True)
+    else:
+        raise KeyError("fillna_by_permno: no 'permno' found in index or columns")
+
+    # Final fallback for columns still containing NaN
+    if strategy == "zero":
+        out = out.fillna(0)
+    elif strategy == "mean":
+        out = out.fillna(out.mean(numeric_only=True))
+    elif strategy == "median":
+        out = out.fillna(out.median(numeric_only=True))
+    else:
+        raise ValueError("Unknown strategy")
+
+    return out

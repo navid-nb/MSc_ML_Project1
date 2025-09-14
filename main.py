@@ -19,7 +19,8 @@ from src.helpers.data_cleanup import (
     prepare_ibes_for_daily_merge,
 )
 from src.helpers.data_extraction import wrds_extract_raw
-from src.helpers.model_matrix import build_model_matrix, null_report
+from src.helpers.model_indicators import add_technical_indicators
+from src.helpers.model_matrix import build_model_matrix, null_report, fillna_by_permno
 
 if __name__ == "__main__":
     res = wrds_extract_raw(
@@ -74,6 +75,13 @@ if __name__ == "__main__":
     df_prices = join_prices_with_ibes_actu(df_prices, ibes_act_daily)
     post_join_qa_prices_with_ibes_actu(df_prices)
 
+    # impute null using ffill and bfill
+    df_prices = fillna_by_permno(df_prices)
+
+    # Technical indicators
+    df_prices = add_technical_indicators(df_prices)
+
+    # Final matrix
     model_df = build_model_matrix(df_prices)
 
     print(f"[final] df_prices shape={df_prices.shape}")
@@ -85,3 +93,7 @@ if __name__ == "__main__":
     print(f"[model] columns={list(model_df.columns)}")
 
     print(null_report(model_df))
+
+    tickers = ["MSFT", "AAPL"]
+    new_model_df = model_df[model_df["ticker"].isin(tickers)]
+    print(null_report(new_model_df))
