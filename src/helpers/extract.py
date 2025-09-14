@@ -41,21 +41,21 @@ def make_run_folder(base_dir: str, use_run: str) -> tuple[str, str, bool]:
     """
     if use_run == "new":
         stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        outdir_name = f"run_{stamp}"
+        out_dir_name = f"run_{stamp}"
         reuse = False
     elif use_run == "last":
         last = latest_run(base_dir)
         if last:
-            outdir_name = last
+            out_dir_name = last
             reuse = True
         else:
             stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-            outdir_name = f"run_{stamp}"
+            out_dir_name = f"run_{stamp}"
             reuse = False
     else:
-        outdir_name = use_run
-        reuse = os.path.isdir(os.path.join(base_dir, outdir_name))
+        out_dir_name = use_run
+        reuse = os.path.isdir(os.path.join(base_dir, out_dir_name))
 
-    outdir = os.path.join(base_dir, outdir_name)
+    outdir = os.path.join(base_dir, out_dir_name)
     ensure_dir(outdir)
-    return outdir, outdir_name, reuse
+    return outdir, out_dir_name, reuse
