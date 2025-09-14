@@ -5,28 +5,43 @@ pd.set_option("future.no_silent_downcasting", True)
 
 
 def _ema(s: pd.Series, span: int) -> pd.Series:
-    """Exponential moving average with pandas' ewm, ignoring all-NaN safety."""
     return s.ewm(span=span, adjust=False, min_periods=1).mean()
 
 
 def _sma(s: pd.Series, window: int) -> pd.Series:
-    """Simple moving average."""
     return s.rolling(window=window, min_periods=1).mean()
 
 
 def _safe_div(a: pd.Series, b: pd.Series) -> pd.Series:
-    """Elementwise a/b with zero/inf protection -> NaN."""
     with np.errstate(divide="ignore", invalid="ignore"):
         out = a / b
         out = out.replace([np.inf, -np.inf], np.nan)
     return out
 
 
+def _permno_level_number(df: pd.DataFrame) -> int | None:
+    """Return the first index level number named 'permno', or None if absent."""
+    if isinstance(df.index, pd.MultiIndex):
+        names = list(df.index.names)
+        matches = [i for i, n in enumerate(names) if n == "permno"]
+        if matches:
+            return matches[0]
+    elif df.index.name == "permno":
+        return 0
+    return None
+
+
 def _groupby_permno(df: pd.DataFrame):
-    """Group by permno whether it's an index level or a column."""
-    if "permno" in (df.index.names or []):
-        return df.groupby(level="permno", group_keys=False)
-    return df.groupby("permno", group_keys=False)
+    """
+    Group by permno whether it's a column or an index level.
+    If multiple index levels are named 'permno', use the first occurrence.
+    """
+    lvl = _permno_level_number(df)
+    if lvl is not None:
+        return df.groupby(level=lvl, group_keys=False)
+    if "permno" in df.columns:
+        return df.groupby("permno", group_keys=False)
+    raise KeyError("add_technical_indicators: 'permno' not found as index level or column.")
 
 
 def _coerce_ohlcv_numeric(
@@ -37,7 +52,6 @@ def _coerce_ohlcv_numeric(
     close_col: str,
     vol_col: str,
 ) -> pd.DataFrame:
-    """Coerce OHLCV columns to float and sanitize infs -> NaN for a group."""
     gg = g.copy()
     for c in (open_col, high_col, low_col, close_col, vol_col):
         if c in gg.columns:
@@ -70,24 +84,7 @@ def add_technical_indicators(
     chvol_delta: int = 10,
 ) -> pd.DataFrame:
     """
-    Compute a dependable set of indicators per PERMNO using only pandas/numpy
-    and append them to the input DataFrame.
-
-    Inputs expected to exist in df:
-      open_col, high_col, low_col, close_col, vol_col
-
-    Indicators (column names):
-      - ATR (SMA):                 {prefix}atr
-      - Aroon Oscillator:          {prefix}aroon_osc
-      - Bollinger %B:              {prefix}bb_pctB
-      - Chaikin Vol delta (1-step):{prefix}chaikin_vol_d1
-      - CLV EMA:                   {prefix}clv_ema
-      - EMV (EMA-smoothed):        {prefix}emv_ema
-      - MACD signal:               {prefix}macd_signal
-      - MFI:                       {prefix}mfi
-      - Garman–Klass Vol:          {prefix}vol_gk
-
-    Returns: df with new columns appended (index preserved).
+    Compute indicators per PERMNO using pandas/numpy and append them.
     """
     required = [open_col, high_col, low_col, close_col, vol_col]
     missing = [c for c in required if c not in df.columns]
@@ -114,11 +111,8 @@ def add_technical_indicators(
         gg = _coerce_ohlcv_numeric(g, open_col, high_col, low_col, close_col, vol_col)
         n = max(aroon_n, 1)
 
-        # rolling window operations using argmax/argmin positions:
-        # "periods since highest high" and "periods since lowest low"
         def _since_last_high(x: pd.Series) -> int:
-            # position of last max from the end
-            idx = int(np.argmax(x.values))  # first max in the window
+            idx = int(np.argmax(x.values))
             return (len(x) - 1) - idx
 
         def _since_last_low(x: pd.Series) -> int:
@@ -127,7 +121,6 @@ def add_technical_indicators(
 
         hh_dist = gg[high_col].rolling(n, min_periods=1).apply(_since_last_high, raw=False)
         ll_dist = gg[low_col].rolling(n, min_periods=1).apply(_since_last_low, raw=False)
-
         aroon_up = (n - hh_dist) * 100.0 / n
         aroon_dn = (n - ll_dist) * 100.0 / n
         return aroon_up - aroon_dn
@@ -160,7 +153,6 @@ def add_technical_indicators(
     def _clv_ema_group(g: pd.DataFrame) -> pd.Series:
         gg = _coerce_ohlcv_numeric(g, open_col, high_col, low_col, close_col, vol_col)
         denom = gg[high_col] - gg[low_col]
-        # CLV = ((C - L) - (H - C)) / (H - L) = (2C - H - L) / (H - L)
         clv = _safe_div(2.0 * gg[close_col] - gg[high_col] - gg[low_col], denom)
         return _ema(clv, span=clv_ema_len)
 
@@ -169,18 +161,11 @@ def add_technical_indicators(
     # EMV (EMA-smoothed)
     def _emv_ema_group(g: pd.DataFrame) -> pd.Series:
         gg = _coerce_ohlcv_numeric(g, open_col, high_col, low_col, close_col, vol_col)
-
-        # Typical EMV (simplified):
-        # Midpoint Move = ((H + L)/2 - (H_prev + L_prev)/2)
         mid = (gg[high_col] + gg[low_col]) / 2.0
         mid_move = mid - mid.shift(1)
-
-        # Box Ratio = (Vol / 1e6) / (H - L), protect div by zero
         hl = gg[high_col] - gg[low_col]
         box_ratio = _safe_div(gg[vol_col] / 1_000_000.0, hl)
         emv = _safe_div(mid_move, box_ratio)
-
-        # Smooth raw EMV, then a signal EMA (like many definitions)
         emv_sm = _sma(emv, emv_len)
         emv_ema_sm = _ema(emv_sm, span=emv_ema)
         return emv_ema_sm
@@ -201,13 +186,12 @@ def add_technical_indicators(
     # Money Flow Index
     def _mfi_group(g: pd.DataFrame) -> pd.Series:
         gg = _coerce_ohlcv_numeric(g, open_col, high_col, low_col, close_col, vol_col)
-        tp = (gg[high_col] + gg[low_col] + gg[close_col]) / 3.0  # typical price
-        mf = tp * gg[vol_col]  # money flow
-        # Positive/Negative money flow depending on price change
+        tp = (gg[high_col] + gg[low_col] + gg[close_col]) / 3.0
+        mf = tp * gg[vol_col]
         up = tp > tp.shift(1)
         pos_mf = mf.where(up).rolling(mfi_len, min_periods=1).sum()
         neg_mf = mf.where(~up).rolling(mfi_len, min_periods=1).sum()
-        mr = _safe_div(pos_mf, neg_mf)  # money flow ratio
+        mr = _safe_div(pos_mf, neg_mf)
         mfi = 100.0 - (100.0 / (1.0 + mr))
         return mfi
 

@@ -168,6 +168,7 @@ def null_report(df: pd.DataFrame, sort: bool = True) -> pd.DataFrame:
     total = len(df)
     report = df.isna().sum().reset_index().rename(columns={"index": "column", 0: "n_null"})
     report["pct_null"] = (report["n_null"] / total * 100).round(2)
+    report["has_nulls"] = report["n_null"] > 0
 
     if sort:
         report = report.sort_values("pct_null", ascending=False).reset_index(drop=True)
