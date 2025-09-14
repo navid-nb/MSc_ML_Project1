@@ -349,3 +349,178 @@ def post_join_qa_prices(df: pd.DataFrame) -> None:
     missing = needed - set(df.columns)
     if missing:
         print(f"[warn] df_prices: missing expected modeling columns: {missing}")
+
+
+def pre_qa_secm(secm: pd.DataFrame) -> None:
+    """
+    Basic hygiene for monthly SECM before merging:
+      - Required cols exist
+      - datadate dtype
+      - Uniqueness on (cusip, datadate) for clean month-end merge
+      - Optional sanity on price / shares / return factor
+    """
+    req = {
+        "gvkey",
+        "datadate",
+        "tic",
+        "cusip",
+        "prccm",
+        "prchm",
+        "prclm",
+        "trt1m",
+        "trfm",
+        "dvpsxm",
+        "dvpspm",
+        "ajexm",
+        "ajpm",
+        "cshoq",
+        "cshom",
+        "cshtrm",
+        "adrrm",
+    }
+    missing = req - set(secm.columns)
+    if missing:
+        raise AssertionError(f"secm missing columns: {missing}")
+
+    # datadate must be datetime
+    _ensure_datetime(secm, ["datadate"], "secm")
+
+    # Enforce uniqueness for the merge path we use (cusip, datadate)
+    # (We merge on NCUSIP (from CRSP names) vs CUSIP (SECM); both are 8-char typically)
+    check_key_dupes(secm, ["cusip", "datadate"], "secm")
+
+    # Light numeric sanity checks (warn-only)
+    if (secm["prccm"] <= 0).any():
+        n = int((secm["prccm"] <= 0).sum())
+        print(f"[warn] secm: {n:,} rows have non-positive prccm.")
+
+    # Count NaNs in some key features
+    for col in ["prccm", "cshoq", "trt1m", "trfm"]:
+        share = float(secm[col].isna().mean())
+        if share > 0:
+            print(f"[info] secm: {share:.1%} NaN in {col}.")
+
+
+def join_prices_with_secm_by_cusip_monthend(
+    df_prices: pd.DataFrame,
+    secm: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Enrich daily df_prices with monthly SECM fields.
+
+    Strategy:
+      - Compute `month_end = date.to_period('M').to_timestamp('M')` on daily side.
+      - Merge left on (ncusip == cusip) & (month_end == datadate).
+      - Keep only one set of identifiers; prefix SECM feature columns to avoid collisions.
+
+    Assumptions:
+      - df_prices columns include: permno, date, ncusip (from prior stocknames join)
+      - secm is unique on (cusip, datadate) and has the monthly features
+
+    Returns:
+      df_prices_enriched (same index as input df_prices if it had one)
+    """
+    if "ncusip" not in df_prices.columns:
+        print("[warn] df_prices lacks 'ncusip'; SECM merge coverage will be low.")
+
+    # Work with columns (not index) for merge clarity
+    need_reset = df_prices.index.names is not None and any(df_prices.index.names)
+    if need_reset:
+        base_index_names = list(df_prices.index.names)
+        df_tmp = df_prices.reset_index()
+    else:
+        base_index_names = None
+        df_tmp = df_prices.copy()
+
+    # Month-end key on daily side
+    _ensure_datetime(df_tmp, ["date"], "df_prices")
+    df_tmp["month_end"] = df_tmp["date"].values.astype("datetime64[M]")  # first day of month
+    df_tmp["month_end"] = df_tmp["month_end"] + pd.offsets.MonthEnd(0)  # end-of-month
+
+    # Prepare SECM key
+    secm_tmp = secm.copy()
+    secm_tmp = secm_tmp.rename(columns={"cusip": "secm_cusip"})
+    # Select a lean set of SECM cols to keep the frame tidy
+    keep_cols = [
+        "secm_cusip",
+        "datadate",
+        "gvkey",
+        "tic",
+        "prccm",
+        "prchm",
+        "prclm",
+        "trt1m",
+        "trfm",
+        "dvpsxm",
+        "dvpspm",
+        "dvrate",
+        "cheqvm",
+        "ajexm",
+        "ajpm",
+        "cshoq",
+        "cshom",
+        "cshtrm",
+        "adrrm",
+        "px_range_m",
+        "vol_raw_m",
+        "turnover_m",
+        "mktcap_m",
+        "range_pct_m",
+        "prccm_adj_ex",
+        "div_yield_ex_m",
+    ]
+    keep_cols = [c for c in keep_cols if c in secm_tmp.columns]
+    secm_tmp = secm_tmp[keep_cols]
+    secm_tmp = secm_tmp.rename(columns={"datadate": "month_end"})  # to join on month-end
+
+    # Merge
+    pre_rows = int(df_tmp.shape[0])
+    merged = df_tmp.merge(
+        secm_tmp,
+        left_on=["ncusip", "month_end"],
+        right_on=["secm_cusip", "month_end"],
+        how="left",
+        suffixes=("", "_secm"),
+    )
+
+    # Safety: no row inflation
+    if merged.shape[0] != pre_rows:
+        raise AssertionError(
+            f"df_prices <- secm merge changed row count: {merged.shape[0]:,} vs {pre_rows:,}"
+        )
+
+    # Cleanup join keys
+    merged = merged.drop(columns=["secm_cusip", "month_end"], errors="ignore")
+
+    # Restore original index if input had one
+    if base_index_names:
+        merged = merged.set_index(base_index_names)
+
+    return merged
+
+
+def post_join_qa_prices_enriched(df: pd.DataFrame) -> None:
+    """
+    After adding SECM monthly fields to daily prices:
+      - Still unique on (permno, date)?
+      - Coverage of SECM cols
+      - Spot anomalies in joined features
+    """
+    # If index is set, use it; else rely on columns
+    idx_names = list(df.index.names or [])
+    if set(["permno", "date"]).issubset(idx_names):
+        pass  # indexed by (permno, date)
+    else:
+        check_key_dupes(df, ["permno", "date"], "df_prices_enriched")
+
+    # Coverage stats for a few representative SECM fields
+    for col in ["prccm", "cshoq", "trt1m", "mktcap_m"]:
+        if col in df.columns:
+            miss = float(df[col].isna().mean())
+            print(f"[info] df_prices_enriched: {miss:.1%} missing in {col}.")
+
+    # Quick sanity
+    if "mktcap_m" in df.columns:
+        neg_cap = int((df["mktcap_m"] < 0).sum())
+        if neg_cap:
+            print(f"[warn] df_prices_enriched: {neg_cap:,} rows with negative monthly mktcap_m.")

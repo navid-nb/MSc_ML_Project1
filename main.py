@@ -1,10 +1,13 @@
-from src.helpers.data_cleanup import (
+from src.helpers.data_cleanup import (  # DSF + Stocknames; SECM
     ensure_index,
     impute_negative_crsp_factors_and_price,
     join_dsf_with_stocknames,
+    join_prices_with_secm_by_cusip_monthend,
     parquet_to_df,
     post_join_qa_prices,
+    post_join_qa_prices_enriched,
     pre_qa_dsf,
+    pre_qa_secm,
     pre_qa_stocknames,
 )
 from src.helpers.data_extraction import wrds_extract_raw
@@ -31,21 +34,29 @@ if __name__ == "__main__":
     )
     print(res)
 
+    # load + index columns
     dsf = parquet_to_df(res["artifacts"], "dsf.parquet")
     dsf = ensure_index(dsf, ["permno", "date"], keep_cols=False)
-
     stock_names = parquet_to_df(res["artifacts"], "stocknames.parquet")
+    secm = parquet_to_df(res["artifacts"], "secm.parquet")
+    secm = ensure_index(secm, ["cusip", "datadate"], keep_cols=True)
 
+    # QA source data + impute
     pre_qa_dsf(dsf)
-    impute_negative_crsp_factors_and_price(dsf)
     pre_qa_stocknames(stock_names)
+    dsf = impute_negative_crsp_factors_and_price(dsf)
+    pre_qa_secm(secm)
 
+    # Joining Daily prices with point-in-time name mapping, index columns and QA output
     df_prices = join_dsf_with_stocknames(dsf, stock_names)
     df_prices = ensure_index(df_prices, ["permno", "date"], keep_cols=False)
-
     post_join_qa_prices(df_prices)
 
-    print(f"[final] df_prices shape={df_prices.shape}")
-    print(f"[final] index={list(df_prices.index.names)}")
-    print(f"[final] columns={list(df_prices.columns)}")
-    print(f"[final] df_prices head=2\n{df_prices.head(2)}")
+    # join prev with SECM by ncusip @ month-end snapshot, and QA output
+    df_prices_enriched = join_prices_with_secm_by_cusip_monthend(df_prices, secm)
+    post_join_qa_prices_enriched(df_prices_enriched)
+
+    print(f"[final] df_prices_enriched shape={df_prices_enriched.shape}")
+    print(f"[final] index={list(df_prices_enriched.index.names)}")
+    print(f"[final] columns={list(df_prices_enriched.columns)}")
+    print(f"[final] head=2\n{df_prices_enriched.head(2)}")
