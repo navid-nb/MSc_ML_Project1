@@ -1,5 +1,4 @@
 -- Center for Research in Security Prices (CRSP) daily stock file (dsf)
-# noinspection SqlType
 SELECT cusip,                         -- 8-digit CUSIP identifier
        permno,                        -- CRSP permanent security number (unique ID)
        "date",                        -- trading date (YYYY-MM-DD)

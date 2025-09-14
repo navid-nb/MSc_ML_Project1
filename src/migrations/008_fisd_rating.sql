@@ -35,7 +35,7 @@ WITH base AS (SELECT issue_id,           -- Unique bond issue identifier
                          ELSE 0 -- Fallback for non rated or unusual codes
                          END AS rating_num
               FROM fisd.fisd_ratings
-              WHERE rating_date >= % (start)s::date
+              WHERE rating_date >= %(start)s::date
     AND rating_date <  %(end)s::date
 )
 SELECT

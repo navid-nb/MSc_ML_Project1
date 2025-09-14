@@ -3,16 +3,21 @@ import datetime as dt
 from typing import Dict, Any, Optional, List
 
 import pandas as pd
-import duckdb
 import wrds
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+# -----------------------
+# Run management
+# -----------------------
+
 def list_runs(base_dir: str) -> List[str]:
     if not os.path.isdir(base_dir):
         return []
-    runs = [d for d in os.listdir(base_dir)
-            if os.path.isdir(os.path.join(base_dir, d)) and d.startswith("run_")]
+    runs = [
+        d for d in os.listdir(base_dir)
+        if os.path.isdir(os.path.join(base_dir, d)) and d.startswith("run_")
+    ]
     runs.sort()
     return runs
 
@@ -24,7 +29,14 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 def make_run_folder(base_dir: str, use_run: str) -> tuple[str, str, bool]:
-    """Return (outdir_abs_path, outdir_name, reuse_flag)."""
+    """
+    Decide run folder name and create it if needed.
+    Returns (abs_path, name, reuse_flag).
+
+    - use_run == "new":     create a fresh timestamped folder (reuse=False)
+    - use_run == "last":    reuse the latest run if exists, else create new
+    - else:                 treat as explicit folder name; reuse if it exists
+    """
     if use_run == "new":
         stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         outdir_name = f"run_{stamp}"
@@ -46,12 +58,9 @@ def make_run_folder(base_dir: str, use_run: str) -> tuple[str, str, bool]:
     ensure_dir(outdir)
     return outdir, outdir_name, reuse
 
-def compute_missing_artifacts(outdir: str, artifacts: List[tuple[str, str]]) -> List[str]:
-    missing = []
-    for _, fname in artifacts:
-        if not os.path.isfile(os.path.join(outdir, fname)):
-            missing.append(fname)
-    return missing
+# -----------------------
+# Extraction
+# -----------------------
 
 def wrds_connect(wrds_user: str) -> wrds.Connection:
     return wrds.Connection(wrds_username=wrds_user, verbose=True)
@@ -62,7 +71,7 @@ def query_to_parquet(conn: wrds.Connection, sql_path: str, out_path: str,
     params = params or {}
     writer = None
     for chunk in pd.read_sql_query(sql, con=conn.connection, params=params, chunksize=chunk_size):
-        table = pa.Table.from_pandas(chunk, preserve_index=False)
+        table = pa.Table.from_pandas(chunk, preserve_index=False)  # noqa
         if writer is None:
             writer = pq.ParquetWriter(out_path, table.schema)
         writer.write_table(table)
@@ -73,64 +82,33 @@ def extract_artifacts(conn: wrds.Connection,
                       artifacts: List[tuple[str, str]],
                       outdir: str,
                       params: Optional[Dict[str, Any]] = None,
-                      chunk_size: int = 500_000) -> None:
-    """Run all SQL files to Parquet (skip existing)."""
+                      chunk_size: int = 500_000,
+                      force: bool = False) -> None:
+    """
+    Run all SQL files to Parquet.
+
+    - If force=True: always (re)write Parquet files.
+    - If force=False: skip files that already exist (not used in this flow).
+    """
     for sqlfile, outfile in artifacts:
         outpath = os.path.join(outdir, outfile)
-        if os.path.isfile(outpath):
+        if (not force) and os.path.isfile(outpath):
             print(f"[skip] Already present: {outfile}")
             continue
+        if force and os.path.isfile(outpath):
+            print(f"[overwrite] {outfile}")
+            os.remove(outpath)
         print(f"[extract] {sqlfile} -> {outfile}")
         query_to_parquet(conn, sqlfile, outpath, params=params, chunk_size=chunk_size)
         print(f"[ok] Saved {outfile}")
 
-def setup_duckdb(tmp_dir: str, threads: int, memory_limit: str, temp_gib: str) -> duckdb.DuckDBPyConnection:
-    ensure_dir(tmp_dir)
-    con = duckdb.connect(database=":memory:")
-    con.execute(f"PRAGMA threads={threads};")
-    con.execute(f"PRAGMA memory_limit='{memory_limit}';")
-    con.execute(f"PRAGMA temp_directory='{tmp_dir}';")
-    con.execute(f"PRAGMA max_temp_directory_size='{temp_gib}';")
-    con.execute("PRAGMA preserve_insertion_order=false;")
-    return con
-
-def views_from_parquet(con: duckdb.DuckDBPyConnection, view_name: str, file_path: str) -> None:
-    con.execute(f"CREATE VIEW {view_name} AS SELECT * FROM read_parquet('{file_path}');")
-
-def register_views(con: duckdb.DuckDBPyConnection, mapping: Dict[str, str]) -> None:
-    """mapping: {view_name: parquet_path}"""
-    for view_name, file_path in mapping.items():
-        views_from_parquet(con, view_name, file_path)
-
-def render_final_select_sql(join_sql_select: str, tickers: list[str]) -> str:
-    """Load template, inject ticker filter for placeholder {{TICKER_FILTER}}."""
-    template = open(join_sql_select).read()
-    quoted = ", ".join("'" + t.replace("'", "''") + "'" for t in tickers)
-    ticker_filter_sql = f"n.ticker IN ({quoted})"
-    return template.replace("{{TICKER_FILTER}}", ticker_filter_sql)
-
-def write_year_partition(con: duckdb.DuckDBPyConnection, year_sql: str, out_path: str) -> int:
-    con.execute(f"""
-        COPY (
-            {year_sql}
+def assert_artifacts_present(outdir: str, artifacts: List[tuple[str, str]]) -> None:
+    """Raise AssertionError listing any missing Parquet outputs."""
+    missing = []
+    for _, fname in artifacts:
+        if not os.path.isfile(os.path.join(outdir, fname)):
+            missing.append(fname)
+    if missing:
+        raise AssertionError(
+            f"Reuse mode requires all artifacts to exist. Missing: {', '.join(missing)}"
         )
-        TO '{out_path}'
-        (FORMAT PARQUET);
-    """)
-    cnt = con.execute(f"SELECT COUNT(*) FROM read_parquet('{out_path}')").fetchone()[0]
-    return int(cnt)
-
-def year_iter(start: str, end: str):
-    s = dt.date.fromisoformat(start)
-    e = dt.date.fromisoformat(end)
-    y = s.year
-    while True:
-        y_start = dt.date(y, 1, 1)
-        y_end = dt.date(y + 1, 1, 1)
-        a = max(y_start, s)
-        b = min(y_end, e)
-        if a < b:
-            yield y, a.isoformat(), b.isoformat()
-        y += 1
-        if y_start >= e or y > e.year + 1:
-            break

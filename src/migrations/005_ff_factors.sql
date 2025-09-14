@@ -6,5 +6,5 @@ SELECT "date",
        rf,    -- Risk-Free Return Rate (One Month Treasury Bill Rate)
        umd    -- Momentum
 FROM ff.factors_daily
-WHERE "date" >= % (start)s::date
+WHERE "date" >= %(start)s::date
   AND "date" <  %(end)s::date;

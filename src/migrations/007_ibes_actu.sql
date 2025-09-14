@@ -1,5 +1,4 @@
 -- IBES Actuals (earnings announcements and realized values)
-# noinspection SqlType
 SELECT ticker,                -- IBES Ticker Symbol
        cusip,                 -- CUSIP/SEDOL (security identifier)
        oftic,                 -- Official Ticker Symbol
@@ -19,6 +18,6 @@ SELECT ticker,                -- IBES Ticker Symbol
        curr_act,              -- Currency of reported actual
        usfirm                 -- Flag: 1 if US firm, 0 if INT
 FROM ibes.actu_epsus
-WHERE anndats < % (end)s::date
+WHERE anndats < %(end)s::date
   AND measure = 'EPS'   -- focus on EPS actuals (because we are forcasting future returns)
   AND usfirm = 1; -- keep only U.S. firms (on nasdaq + nyse)

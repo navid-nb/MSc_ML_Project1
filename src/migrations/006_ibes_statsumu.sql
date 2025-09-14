@@ -1,5 +1,4 @@
 -- IBES Summary (statsumu_epsus): identifiers first, then model features for return forecasting
-# noinspection SqlType
 SELECT ticker      AS ibes_ticker,     -- IBES ticker (stable within IBES)
        cusip       AS cusip8,          -- 8-char CUSIP/SEDOL (mapping only)
        oftic       AS official_ticker, -- official exchange ticker
@@ -45,7 +44,7 @@ SELECT ticker      AS ibes_ticker,     -- IBES ticker (stable within IBES)
            END     AS surprise_pct     -- earnings surprise (% of consensus)
 
 FROM ibes.statsumu_epsus
-WHERE statpers < % (end)s::date
+WHERE statpers <  %(end)s::date
   AND statpers >= %(start)s::date
     AND estflag = 'P'             -- keep primary estimates (official forecast used in consensus)
     AND measure = 'EPS'           -- we are interested in Earnings per Share (EPS) forecasts. possible values (based on docs, I haven't tested yet (to-do)): EPS, Sales, EBIT, EBITDA, Cash Flow, etc...)

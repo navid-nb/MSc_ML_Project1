@@ -1,5 +1,4 @@
 -- Compustat Security Monthly Descriptor (SECM) - feature-rich for return forecasting
-# noinspection SqlType
 SELECT gvkey,                                                     -- firm identifier
        datadate,                                                  -- month-end snapshot date
        tic,                                                       -- ticker

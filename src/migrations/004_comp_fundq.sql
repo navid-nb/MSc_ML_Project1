@@ -61,7 +61,7 @@ SELECT f.gvkey,                          -- firm identifier (stable)
        f.prcraq  AS avg_repurchase_px_q  -- average repurchase price per share (quarter)
 
 FROM comp.fundq AS f
-WHERE f.datadate >= % (start)s::date
+WHERE f.datadate >= %(start)s::date
   AND f.datadate <  %(end)s::date
     AND f.finalq = 'Y'          -- keep finalized filings
     AND f.consol = 'C'          -- consolidated

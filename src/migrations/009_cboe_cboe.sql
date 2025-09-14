@@ -5,5 +5,5 @@ SELECT "date", -- Date
        vxn,    -- NASDAQ 100 VIX Close
        vxd     -- Dow Jones Industrial Average VIX Close
 FROM cboe.cboe
-WHERE "date" >= % (start)s::date
+WHERE "date" >= %(start)s::date
   AND "date" <  %(end)s::date;
