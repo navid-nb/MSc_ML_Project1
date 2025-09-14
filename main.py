@@ -1,7 +1,13 @@
 import pandas as pd
 
-from src.helpers.data_cleanup import parquet_to_df, basic_dsf_qa, basic_stocknames_qa, check_key_dupes, \
-    coalesce_date_end, assert_no_new_rows
+from src.helpers.data_cleanup import (
+    assert_no_new_rows,
+    basic_dsf_qa,
+    basic_stocknames_qa,
+    check_key_dupes,
+    coalesce_date_end,
+    parquet_to_df,
+)
 from src.helpers.data_extraction import wrds_extract_raw
 
 if __name__ == "__main__":
@@ -52,20 +58,23 @@ if __name__ == "__main__":
         sn[["permno", "ticker", "ncusip", "namedt", "nameenddt_eff"]],
         on="permno",
         how="left",
-        suffixes=("", "_sn")
+        suffixes=("", "_sn"),
     )
 
     # 2) keep only rows where date ∈ [namedt, nameenddt_eff]
     mask_valid = (merged["date"] >= merged["namedt"]) & (merged["date"] <= merged["nameenddt_eff"])
-    merged = merged.loc[mask_valid | merged["namedt"].isna()]  # keep unmatched (left join semantics)
+    merged = merged.loc[
+        mask_valid | merged["namedt"].isna()
+    ]  # keep unmatched (left join semantics)
 
     # 3) if overlaps created multiple rows for the same (permno,date), pick the record with the latest namedt
     if {"namedt", "date", "permno"}.issubset(merged.columns):
-        merged["_rank_namedt"] = (
-            merged.groupby(["permno", "date"])["namedt"]
-            .transform(lambda s: s.fillna(pd.Timestamp("1900-01-01")).rank(method="first", ascending=False))
+        merged["_rank_namedt"] = merged.groupby(["permno", "date"])["namedt"].transform(
+            lambda s: s.fillna(pd.Timestamp("1900-01-01")).rank(method="first", ascending=False)
         )
-        merged = merged.loc[(merged["_rank_namedt"] == 1) | merged["namedt"].isna()].drop(columns=["_rank_namedt"])
+        merged = merged.loc[(merged["_rank_namedt"] == 1) | merged["namedt"].isna()].drop(
+            columns=["_rank_namedt"]
+        )
 
     # 4) assert we didn't CREATE rows (left join guarantee)
     assert_no_new_rows(dsf, merged, left_name="dsf", join_name="dsf⟵stocknames")
@@ -84,12 +93,15 @@ if __name__ == "__main__":
     null_ticker = merged["ticker"].isna().mean()
     if null_ticker > 0:
         print(
-            f"[info] {null_ticker:.1%} of dsf rows lack a ticker mapping on that date (OK if off-CRSP, mergers, stale names).")
+            f"[info] {null_ticker:.1%} of dsf rows lack a ticker mapping on that date (OK if off-CRSP, mergers, stale names)."
+        )
 
     # basic price/return issues that can poison models
     bad_adj = merged["adj_prc"].abs() <= 1e-8
     if bad_adj.any():
-        print(f"[warn] {bad_adj.sum():,} rows with near-zero adjusted price; consider filtering before featurization.")
+        print(
+            f"[warn] {bad_adj.sum():,} rows with near-zero adjusted price; consider filtering before featurization."
+        )
 
     # Optional: filter to U.S. common stocks later using share/exchange codes from CRSP monthly/headers if you add them.
 

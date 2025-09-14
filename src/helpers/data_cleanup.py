@@ -1,4 +1,5 @@
 import os
+
 import numpy as np
 import pandas as pd
 
@@ -15,7 +16,9 @@ def coalesce_date_end(s: pd.Series) -> pd.Series:
     return s.fillna(pd.Timestamp("9999-12-31"))
 
 
-def assert_no_new_rows(df_left: pd.DataFrame, df_joined: pd.DataFrame, left_name="left", join_name="join"):
+def assert_no_new_rows(
+    df_left: pd.DataFrame, df_joined: pd.DataFrame, left_name="left", join_name="join"
+):
     if df_joined.shape[0] > df_left.shape[0]:
         raise AssertionError(
             f"Join produced more rows ({df_joined.shape[0]:,}) than {left_name} ({df_left.shape[0]:,}). "
@@ -47,13 +50,15 @@ def basic_dsf_qa(dsf: pd.DataFrame):
     n_neg = (dsf["prc"] < 0).sum()
     if n_neg:
         print(
-            f"[info] dsf: {n_neg:,} rows have negative PRC (CRSP convention). adj_prc below handles sign via factor.")
+            f"[info] dsf: {n_neg:,} rows have negative PRC (CRSP convention). adj_prc below handles sign via factor."
+        )
 
     # returns sanity
     too_big = dsf["ret"].abs() > 5.0
     if too_big.any():
         print(
-            f"[warn] dsf: {too_big.sum():,} rows with |ret|>500% — investigate potential stale prices/corporate actions.")
+            f"[warn] dsf: {too_big.sum():,} rows with |ret|>500% — investigate potential stale prices/corporate actions."
+        )
 
 
 def basic_stocknames_qa(sn: pd.DataFrame):
@@ -78,8 +83,10 @@ def basic_stocknames_qa(sn: pd.DataFrame):
         if ov:
             overlaps.append(p)
     if overlaps:
-        print(f"[warn] stocknames: {len(overlaps)} permno have overlapping name windows; "
-              f"join could duplicate rows. Consider deduping to most recent record per date.")
+        print(
+            f"[warn] stocknames: {len(overlaps)} permno have overlapping name windows; "
+            f"join could duplicate rows. Consider deduping to most recent record per date."
+        )
 
 
 def dedupe_stocknames_for_asof(sn: pd.DataFrame) -> pd.DataFrame:
