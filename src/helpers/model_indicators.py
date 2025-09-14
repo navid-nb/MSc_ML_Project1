@@ -113,6 +113,7 @@ def add_technical_indicators(
     def _aroon_group(g: pd.DataFrame) -> pd.Series:
         gg = _coerce_ohlcv_numeric(g, open_col, high_col, low_col, close_col, vol_col)
         n = max(aroon_n, 1)
+
         # rolling window operations using argmax/argmin positions:
         # "periods since highest high" and "periods since lowest low"
         def _since_last_high(x: pd.Series) -> int:
@@ -158,7 +159,7 @@ def add_technical_indicators(
     # CLV EMA
     def _clv_ema_group(g: pd.DataFrame) -> pd.Series:
         gg = _coerce_ohlcv_numeric(g, open_col, high_col, low_col, close_col, vol_col)
-        denom = (gg[high_col] - gg[low_col])
+        denom = gg[high_col] - gg[low_col]
         # CLV = ((C - L) - (H - C)) / (H - L) = (2C - H - L) / (H - L)
         clv = _safe_div(2.0 * gg[close_col] - gg[high_col] - gg[low_col], denom)
         return _ema(clv, span=clv_ema_len)
@@ -220,7 +221,7 @@ def add_technical_indicators(
         with np.errstate(divide="ignore", invalid="ignore"):
             hl = np.log(_safe_div(gg[high_col], gg[low_col]))
             co = np.log(_safe_div(gg[close_col], gg[open_col]))
-            var = (hl ** 2) / 2.0 - (2 * ln2 - 1) * (co ** 2)
+            var = (hl**2) / 2.0 - (2 * ln2 - 1) * (co**2)
             var = var.clip(lower=0)
             return np.sqrt(var)
 

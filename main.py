@@ -20,9 +20,10 @@ from src.helpers.data_cleanup import (
 )
 from src.helpers.data_extraction import wrds_extract_raw
 from src.helpers.model_indicators import add_technical_indicators
-from src.helpers.model_matrix import build_model_matrix, null_report, fillna_by_permno
+from src.helpers.model_matrix import build_model_matrix, fillna_by_permno, null_report
 
-if __name__ == "__main__":
+
+def main():
     res = wrds_extract_raw(
         wrds_user="wboughattas",
         start="2020-01-01",
@@ -97,3 +98,7 @@ if __name__ == "__main__":
     tickers = ["MSFT", "AAPL"]
     new_model_df = model_df[model_df["ticker"].isin(tickers)]
     print(null_report(new_model_df))
+
+
+if __name__ == "__main__":
+    main()
