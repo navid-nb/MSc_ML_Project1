@@ -6,7 +6,7 @@ from src.helpers.sql import (
     extract_artifacts,
     assert_artifacts_present,
 )
-from src.helpers.extract import ensure_dir, make_run_folder
+from src.helpers.extract import ensure_dir, make_run_folder, delete_dir
 
 BASE_DIR = "wrds_extracts"
 
@@ -36,12 +36,18 @@ def wrds_extract_raw(
     print(f"[info] Using run folder: {out_dir_name} (reuse={reuse})")
 
     if not reuse:
-        # New run -> pull everything unconditionally
-        print("[info] Connecting to WRDS ...")
-        conn = wrds_connect(wrds_user)
-        params = {"start": start, "end": end}
-        extract_artifacts(conn, ARTIFACTS, out_dir, params=params, chunk_size=chunk_size, force=True)
-        print("[info] Extraction complete (full refresh).")
+        conn = None
+        try:
+            conn = wrds_connect(wrds_user)
+            params = {"start": start, "end": end}
+            extract_artifacts(conn, ARTIFACTS, out_dir, params=params, chunk_size=chunk_size, force=True)
+        except Exception as e:
+            if os.path.commonpath([os.path.abspath(out_dir), os.path.abspath(BASE_DIR)]) == os.path.abspath(BASE_DIR):
+                delete_dir(out_dir)
+            raise
+        finally:
+            if conn is not None:
+                conn.close()
     else:
         assert_artifacts_present(out_dir, ARTIFACTS)
         print("[info] Reuse mode: all required Parquet files are present. No extraction performed.")

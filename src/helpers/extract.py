@@ -1,5 +1,6 @@
 import os
 import datetime as dt
+import shutil
 from typing import Optional, List
 
 
@@ -19,6 +20,10 @@ def latest_run(base_dir: str) -> Optional[str]:
 
 def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
+
+def delete_dir(path: str) -> None:
+    if os.path.isdir(path):
+        shutil.rmtree(path)
 
 def make_run_folder(base_dir: str, use_run: str) -> tuple[str, str, bool]:
     """
