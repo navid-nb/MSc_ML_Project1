@@ -58,9 +58,8 @@ def check_key_dupes(df: pd.DataFrame, key_cols: list[str], label: str) -> None:
             .sort_values(ascending=False)
             .head(10)
         )
-        raise AssertionError(
-            f"{label}: duplicate keys on {key_cols}. Top examples (counts):\n{ex}"
-        )
+        raise AssertionError(f"{label}: duplicate keys on {key_cols}. Top examples (counts):\n{ex}")
+
 
 def _ensure_datetime(df: pd.DataFrame, cols: list[str], label: str) -> None:
     """
@@ -105,14 +104,17 @@ def _ensure_datetime(df: pd.DataFrame, cols: list[str], label: str) -> None:
         # Not found
         raise KeyError(f"{label}: '{c}' not found as column or index.")
 
+
 def _fill_prev_positive(series: pd.Series) -> pd.Series:
     """Replace non-positive values with NaN, then forward-fill, then backfill."""
-    s = series.where(series > 0)   # keep strictly positive, null out others (<=0 or NaN)
-    s = s.ffill().bfill()          # fill from previous valid; if starts invalid, backfill from next valid
+    s = series.where(series > 0)  # keep strictly positive, null out others (<=0 or NaN)
+    s = s.ffill().bfill()  # fill from previous valid; if starts invalid, backfill from next valid
     return s
 
 
-def ensure_index(df: pd.DataFrame, cols: list[str], *, sort: bool = True, keep_cols: bool = True) -> pd.DataFrame:
+def ensure_index(
+    df: pd.DataFrame, cols: list[str], *, sort: bool = True, keep_cols: bool = True
+) -> pd.DataFrame:
     """
     Make `cols` the (multi)index, optionally keep them as columns, and sort.
     - Faster groupby/lookup on repeated ops.
@@ -180,7 +182,7 @@ def impute_negative_crsp_factors_and_price(dsf: pd.DataFrame) -> pd.DataFrame:
     # Sort by (permno, date) regardless of whether they are columns or index levels
     idx_names = list(out.index.names or [])
     has_permno_idx = "permno" in idx_names
-    has_date_idx   = "date"   in idx_names
+    has_date_idx = "date" in idx_names
 
     if has_permno_idx and has_date_idx:
         out = out.sort_index()
@@ -216,6 +218,7 @@ def impute_negative_crsp_factors_and_price(dsf: pd.DataFrame) -> pd.DataFrame:
         out["adj_mktcap"] = out["adj_prc"].abs() * out["adj_shrout"]
 
     return out
+
 
 def pre_qa_stocknames(sn: pd.DataFrame) -> None:
     """
@@ -257,8 +260,19 @@ def join_dsf_with_stocknames(dsf: pd.DataFrame, stock_names: pd.DataFrame) -> pd
       5) Drop interval columns; prefer ncusip over dsf.cusip to avoid confusion.
     """
     # Ensure we work with columns (not index levels) to avoid ambiguity in merge/filtering
-    dsf_c = dsf.reset_index() if ("permno" in (dsf.index.names or []) or "date" in (dsf.index.names or [])) else dsf.copy()
-    sn_c  = stock_names.reset_index() if ("permno" in (stock_names.index.names or []) or "namedt" in (stock_names.index.names or [])) else stock_names.copy()
+    dsf_c = (
+        dsf.reset_index()
+        if ("permno" in (dsf.index.names or []) or "date" in (dsf.index.names or []))
+        else dsf.copy()
+    )
+    sn_c = (
+        stock_names.reset_index()
+        if (
+            "permno" in (stock_names.index.names or [])
+            or "namedt" in (stock_names.index.names or [])
+        )
+        else stock_names.copy()
+    )
 
     sn_c["nameenddt_eff"] = coalesce_date_end(sn_c["nameenddt"])
     pre_rows = int(dsf_c.shape[0])
@@ -294,8 +308,12 @@ def join_dsf_with_stocknames(dsf: pd.DataFrame, stock_names: pd.DataFrame) -> pd
     check_key_dupes(merged, ["permno", "date"], "post-join dsf")
 
     post_rows = int(merged.shape[0])
-    print("[info] df_prices:", {"rows_in": pre_rows, "rows_out": post_rows, "lost_rows": pre_rows - post_rows})
+    print(
+        "[info] df_prices:",
+        {"rows_in": pre_rows, "rows_out": post_rows, "lost_rows": pre_rows - post_rows},
+    )
     return merged
+
 
 def post_join_qa_prices(df: pd.DataFrame) -> None:
     """
