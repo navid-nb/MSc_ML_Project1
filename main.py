@@ -95,7 +95,7 @@ def main():
 
     print(null_report(model_df))
 
-    tickers = ["MSFT", "AAPL"]
+    tickers = ["AAPL", "MSFT", "AMZN", "META", "TSLA"]
     new_model_df = model_df[model_df["ticker"].isin(tickers)]
     print(null_report(new_model_df))
 
