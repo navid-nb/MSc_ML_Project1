@@ -188,87 +188,6 @@ def build_model_matrix_from_df(
     return final
 
 
-def build_model_matrix_from_wrds(
-    wrds_user: str,
-    start: str,
-    end: str,
-    chunk_size: int,
-    use_run: str,
-) -> pd.DataFrame:
-    res = wrds_extract_raw(
-        wrds_user=wrds_user,
-        start=start,
-        end=end,
-        chunk_size=chunk_size,
-        use_run=use_run,
-        base_dir="wrds_extracts",
-        artifacts=[
-            ("src/migrations/001_base_extract.sql", "dsf.parquet"),
-            ("src/migrations/002_crsp_names.sql", "stocknames.parquet"),
-            ("src/migrations/003_ff_factors.sql", "ff.parquet"),
-            ("src/migrations/004_ibes_statsumu.sql", "ibes_stats.parquet"),
-            ("src/migrations/005_ibes_actu.sql", "ibes_act.parquet"),
-        ],
-    )
-    print(res)
-
-    # Load
-    dsf = parquet_to_df(res["artifacts"], "dsf.parquet")
-    stock_names = parquet_to_df(res["artifacts"], "stocknames.parquet")
-    ff = parquet_to_df(res["artifacts"], "ff.parquet")
-    ibes = parquet_to_df(res["artifacts"], "ibes_stats.parquet")
-    ibes_act = parquet_to_df(res["artifacts"], "ibes_act.parquet")
-
-    # Index & QA
-    dsf = ensure_index(dsf, ["permno", "date"], keep_cols=False)
-    pre_qa_dsf(dsf)
-    pre_qa_stocknames(stock_names)
-    dsf = impute_negative_crsp_factors_and_price(dsf)
-
-    # Prices + names
-    df_prices = join_dsf_with_stocknames(dsf, stock_names)
-    df_prices = ensure_index(df_prices, ["permno", "date"], keep_cols=False)
-    post_join_qa_prices(df_prices)
-
-    # FF
-    pre_qa_ff(ff)
-    df_prices = join_prices_with_ff(df_prices, ff)
-    post_join_qa_prices_with_ff(df_prices)
-
-    # IBES statsumu (EPS)
-    pre_qa_ibes_statsumu(ibes)
-    ibes_daily = prepare_ibes_for_daily_merge(ibes)
-    df_prices = join_prices_with_ibes(df_prices, ibes_daily)
-    post_join_qa_prices_with_ibes(df_prices)
-
-    # IBES actuals (EPS)
-    pre_qa_ibes_actu(ibes_act)
-    ibes_act_daily = prepare_ibes_actu_for_daily_merge(ibes_act)
-    df_prices = join_prices_with_ibes_actu(df_prices, ibes_act_daily)
-    post_join_qa_prices_with_ibes_actu(df_prices)
-
-    # impute null using ffill and bfill
-    df_prices = fillna_by_permno(df_prices)
-
-    # Technical indicators
-    df_prices = add_technical_indicators(df_prices)
-
-    # Final matrix
-    model_df = build_model_matrix_from_df(df_prices)
-
-    print(f"[final] df_prices shape={df_prices.shape}")
-    print(f"[final] index={list(df_prices.index.names)}")
-    print(f"[final] columns={list(df_prices.columns)}")
-
-    print(f"[model] shape={model_df.shape}")
-    print(f"[model] index={list(model_df.index.names)}")
-    print(f"[model] columns={list(model_df.columns)}")
-
-    print(null_report(model_df))
-
-    return model_df
-
-
 def null_report(df: pd.DataFrame, sort: bool = True) -> pd.DataFrame:
     """
     Generate a null report (% of missing values) for each column.
@@ -348,7 +267,6 @@ def _get_date_index(df: pd.DataFrame, date_name: str = "date") -> pd.DatetimeInd
 
 def reindex_each_permno_to_global_calendar(
     df: pd.DataFrame,
-    *,
     date_name: str = "date",
     id_name: str = "permno",
     fill: Literal["none", "ffill", "bfill", "both"] = "both",
@@ -407,3 +325,110 @@ def reindex_each_permno_to_global_calendar(
             raise ValueError("final_strategy must be one of {'none','zero','mean','median'}")
 
     return out
+
+
+def build_model_matrix_from_wrds(
+    wrds_user: str,
+    start: str,
+    end: str,
+    chunk_size: int,
+    use_run: str,
+) -> pd.DataFrame:
+    res = wrds_extract_raw(
+        wrds_user=wrds_user,
+        start=start,
+        end=end,
+        chunk_size=chunk_size,
+        use_run=use_run,
+        base_dir="wrds_extracts",
+        artifacts=[
+            ("src/migrations/001_base_extract.sql", "dsf.parquet"),
+            ("src/migrations/002_crsp_names.sql", "stocknames.parquet"),
+            ("src/migrations/003_ff_factors.sql", "ff.parquet"),
+            ("src/migrations/004_ibes_statsumu.sql", "ibes_stats.parquet"),
+            ("src/migrations/005_ibes_actu.sql", "ibes_act.parquet"),
+        ],
+    )
+    print(res)
+
+    # Load
+    dsf = parquet_to_df(res["artifacts"], "dsf.parquet")
+    stock_names = parquet_to_df(res["artifacts"], "stocknames.parquet")
+    ff = parquet_to_df(res["artifacts"], "ff.parquet")
+    ibes = parquet_to_df(res["artifacts"], "ibes_stats.parquet")
+    ibes_act = parquet_to_df(res["artifacts"], "ibes_act.parquet")
+
+    # Index & QA
+    dsf = ensure_index(dsf, ["permno", "date"], keep_cols=False)
+    pre_qa_dsf(dsf)
+    pre_qa_stocknames(stock_names)
+    dsf = impute_negative_crsp_factors_and_price(dsf)
+
+    # Prices + names
+    df_prices = join_dsf_with_stocknames(dsf, stock_names)
+    df_prices = ensure_index(df_prices, ["permno", "date"], keep_cols=False)
+    post_join_qa_prices(df_prices)
+
+    # FF
+    pre_qa_ff(ff)
+    df_prices = join_prices_with_ff(df_prices, ff)
+    post_join_qa_prices_with_ff(df_prices)
+
+    # IBES statsumu (EPS)
+    pre_qa_ibes_statsumu(ibes)
+    ibes_daily = prepare_ibes_for_daily_merge(ibes)
+    df_prices = join_prices_with_ibes(df_prices, ibes_daily)
+    post_join_qa_prices_with_ibes(df_prices)
+
+    # IBES actuals (EPS)
+    pre_qa_ibes_actu(ibes_act)
+    ibes_act_daily = prepare_ibes_actu_for_daily_merge(ibes_act)
+    df_prices = join_prices_with_ibes_actu(df_prices, ibes_act_daily)
+    post_join_qa_prices_with_ibes_actu(df_prices)
+
+    # impute null using ffill and bfill
+    df_prices = fillna_by_permno(df_prices)
+
+    # Technical indicators
+    df_prices = add_technical_indicators(df_prices)
+
+    # Final matrix
+    model_df = build_model_matrix_from_df(df_prices)
+    model_df = model_df.reset_index(level=1, drop=True)
+
+    print(f"[final] df_prices shape={df_prices.shape}")
+    print(f"[final] index={list(df_prices.index.names)}")
+    print(f"[final] columns={list(df_prices.columns)}")
+
+    print(f"[model] shape={model_df.shape}")
+    print(f"[model] index={list(model_df.index.names)}")
+    print(f"[model] columns={list(model_df.columns)}")
+
+    print(null_report(model_df))
+
+    return model_df
+
+
+def build_matrix_from_all_stocks(all_stocks: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
+    master_cal = all_stocks.index.get_level_values("date").unique().sort_values()
+    print(len(master_cal))
+
+    df = all_stocks[all_stocks["ticker"].isin(tickers)]
+
+    df = reindex_each_permno_to_global_calendar(df, calendar=master_cal)
+    df = df.sort_index()
+
+    cols_to_fill = [c for c in df.columns if c != "Y"]
+    df[cols_to_fill] = (
+        df[cols_to_fill].groupby(level=0, group_keys=False).apply(lambda g: g.ffill().bfill())
+    )
+
+    print(df.shape)
+    print(null_report(df))
+    print(df.shape)
+    print(df.columns, df.index.names)
+    print(df.head(10))
+
+    assert df.shape[0] % 252 == 0, f"Row count {df.shape[0]} must divisible by 252"
+
+    return df
