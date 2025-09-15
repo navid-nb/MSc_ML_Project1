@@ -10,3 +10,4 @@ watchdog>=6.0.0
 yfinance>=0.2.40
 wrds>=3.4.0
 duckdb==1.3.2
+quantstats==0.0.77
