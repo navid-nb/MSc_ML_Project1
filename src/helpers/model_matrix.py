@@ -188,13 +188,19 @@ def build_model_matrix_from_df(
     return final
 
 
-def build_model_matrix_from_wrds() -> pd.DataFrame:
+def build_model_matrix_from_wrds(
+    wrds_user: str,
+    start: str,
+    end: str,
+    chunk_size: int,
+    use_run: str,
+) -> pd.DataFrame:
     res = wrds_extract_raw(
-        wrds_user="wboughattas",
-        start="2020-01-01",
-        end="2021-01-01",
-        chunk_size=500_000,
-        use_run="last",
+        wrds_user=wrds_user,
+        start=start,
+        end=end,
+        chunk_size=chunk_size,
+        use_run=use_run,
         base_dir="wrds_extracts",
         artifacts=[
             ("src/migrations/001_base_extract.sql", "dsf.parquet"),
