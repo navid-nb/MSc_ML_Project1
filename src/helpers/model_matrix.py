@@ -3,11 +3,26 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from src.helpers.data_cleanup import parquet_to_df, ensure_index, pre_qa_dsf, pre_qa_stocknames, \
-    impute_negative_crsp_factors_and_price, join_dsf_with_stocknames, post_join_qa_prices, pre_qa_ff, \
-    join_prices_with_ff, post_join_qa_prices_with_ff, pre_qa_ibes_statsumu, prepare_ibes_for_daily_merge, \
-    join_prices_with_ibes, post_join_qa_prices_with_ibes, pre_qa_ibes_actu, prepare_ibes_actu_for_daily_merge, \
-    join_prices_with_ibes_actu, post_join_qa_prices_with_ibes_actu
+from src.helpers.data_cleanup import (
+    ensure_index,
+    impute_negative_crsp_factors_and_price,
+    join_dsf_with_stocknames,
+    join_prices_with_ff,
+    join_prices_with_ibes,
+    join_prices_with_ibes_actu,
+    parquet_to_df,
+    post_join_qa_prices,
+    post_join_qa_prices_with_ff,
+    post_join_qa_prices_with_ibes,
+    post_join_qa_prices_with_ibes_actu,
+    pre_qa_dsf,
+    pre_qa_ff,
+    pre_qa_ibes_actu,
+    pre_qa_ibes_statsumu,
+    pre_qa_stocknames,
+    prepare_ibes_actu_for_daily_merge,
+    prepare_ibes_for_daily_merge,
+)
 from src.helpers.data_extraction import wrds_extract_raw
 from src.helpers.model_indicators import add_technical_indicators
 
@@ -155,7 +170,7 @@ def build_model_matrix_from_df(
     return final
 
 
-def build_model_matrix_from_wrds():
+def build_model_matrix_from_wrds() -> pd.DataFrame:
     res = wrds_extract_raw(
         wrds_user="wboughattas",
         start="2020-01-01",
@@ -227,9 +242,7 @@ def build_model_matrix_from_wrds():
 
     print(null_report(model_df))
 
-    tickers = ["AAPL", "MSFT", "AMZN", "META", "TSLA"]
-    new_model_df = model_df[model_df["ticker"].isin(tickers)]
-    print(null_report(new_model_df))
+    return model_df
 
 
 def null_report(df: pd.DataFrame, sort: bool = True) -> pd.DataFrame:
