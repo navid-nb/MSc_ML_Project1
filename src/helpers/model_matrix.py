@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Literal, Sequence
 
 import numpy as np
 import pandas as pd
@@ -333,5 +333,106 @@ def fillna_by_permno(df: pd.DataFrame, strategy: str = "median") -> pd.DataFrame
         out = out.fillna(out.median(numeric_only=True))
     else:
         raise ValueError("Unknown strategy")
+
+    return out
+
+
+def _get_date_index(df: pd.DataFrame, date_name: str = "date") -> pd.DatetimeIndex:
+    """Return a sorted DatetimeIndex of all trading dates present in df."""
+    if date_name in (df.index.names or []):
+        di = pd.DatetimeIndex(df.index.get_level_values(date_name))
+    else:
+        di = pd.to_datetime(df[date_name], errors="raise")
+    return pd.DatetimeIndex(sorted(di.unique()))
+
+
+def reindex_each_permno_to_global_calendar(
+    df: pd.DataFrame,
+    *,
+    date_name: str = "date",
+    id_name: str = "permno",
+    fill: Literal["none", "ffill", "bfill", "both"] = "both",
+    final_strategy: Literal["none", "zero", "mean", "median"] = "median",
+    only_columns: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Reindex every (id_name) to the union of *all* trading dates in df.
+    Works whether (id_name, date_name) are index levels or columns.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Input panel with at least id_name and date_name (as index or columns).
+    date_name : str
+        Date level/column name.
+    id_name : str
+        Security identifier level/column name (permno).
+    fill : {"none","ffill","bfill","both"}
+        Optional per-id time fill after reindex.
+    final_strategy : {"none","zero","mean","median"}
+        Final global fill for any remaining NaNs (numeric columns only).
+    only_columns : list[str] | None
+        If provided, restrict reindexing return to these columns (+ id/date). Useful to save memory.
+
+    Returns
+    -------
+    DataFrame reindexed to a full (id × global_dates) grid, sorted by (id,date).
+    """
+    work = df.copy()
+    idx_names = list(work.index.names or [])
+
+    # Drop duplicate column if also present in index
+    if id_name in idx_names and id_name in work.columns:
+        work = work.drop(columns=id_name)
+    if date_name in idx_names and date_name in work.columns:
+        work = work.drop(columns=date_name)
+
+    if id_name in idx_names:
+        work[id_name] = work.index.get_level_values(id_name)
+    if date_name in idx_names:
+        work[date_name] = work.index.get_level_values(date_name)
+
+    # Coerce date to datetime and sort
+    work[date_name] = pd.to_datetime(work[date_name], errors="raise")
+    work = work.sort_values([id_name, date_name])
+
+    # Build global calendar = union of all dates in df
+    global_dates = _get_date_index(work, date_name=date_name)
+
+    # All ids
+    ids = pd.Index(work[id_name].unique(), name=id_name)
+
+    # Full target index (id × global_dates)
+    full_index = pd.MultiIndex.from_product([ids, global_dates], names=[id_name, date_name])
+
+    # Set index and reindex
+    if only_columns is None:
+        cols = [c for c in work.columns if c not in (id_name, date_name)]
+    else:
+        keep = set(only_columns) | {id_name, date_name}
+        cols = [c for c in work.columns if c in keep and c not in (id_name, date_name)]
+
+    out = work.set_index([id_name, date_name])[cols].reindex(full_index).sort_index()
+
+    # Optional per-id fills
+    if fill in {"ffill", "bfill", "both"}:
+        gb = out.groupby(level=0, group_keys=False)
+        if fill == "ffill":
+            out = gb.ffill()
+        elif fill == "bfill":
+            out = gb.bfill()
+        else:  # "both"
+            out = gb.ffill().groupby(level=0, group_keys=False).bfill()
+
+    # Final global fallback for numeric columns
+    if final_strategy != "none":
+        if final_strategy == "zero":
+            out = out.fillna(0)
+        elif final_strategy == "mean":
+            out = out.fillna(out.mean(numeric_only=True))
+        elif final_strategy == "median":
+            out = out.fillna(out.median(numeric_only=True))
+        else:
+            raise ValueError("final_strategy must be one of {'none','zero','mean','median'}")
 
     return out
