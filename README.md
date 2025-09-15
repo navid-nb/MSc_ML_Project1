@@ -6,3 +6,7 @@
 ```bash
 pre-commit run --all-files
 ```
+
+```bash
+git ls-files | grep -vE '\.(parquet|html)$' | xargs cat | wc -l
+```
