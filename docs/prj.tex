@@ -1,11 +1,45 @@
 \documentclass[11pt]{article}
 \usepackage{amsmath, amssymb}
-\usepackage{graphicx}
 \usepackage{hyperref}
 \usepackage{geometry}
 \usepackage{fancyhdr}
 \usepackage{enumitem}
 \usepackage{mathtools}
+\usepackage{listings}
+\usepackage{amsfonts}
+% Unicode + listings fixes
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  keywordstyle=\bfseries,
+  showstringspaces=false,
+  % Map common Unicode to LaTeX math in listings:
+  literate=
+    {≤}{{$\le$}}1
+    {≥}{{$\ge$}}1
+    {→}{{$\to$}}1
+    {←}{{$\leftarrow$}}1
+    {∈}{{$\in$}}1
+    {Σ}{{$\Sigma$}}1
+    {…}{{$\ldots$}}1
+    {×}{{$\times$}}1
+    {τ}{{$\tau$}}1
+    {γ}{{$\gamma$}}1
+    {μ}{{$\mu$}}1
+    {σ}{{$\sigma$}}1
+}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  keywordstyle=\bfseries,
+  showstringspaces=false
+}
 
 \pagestyle{fancy}
 \fancyhf{}
@@ -19,127 +53,155 @@
     \maketitle
 
     \section*{Abstract}
-    This strategy adds a machine-learning layer on top of an existing portfolio and transforms raw market and fundamental data into daily trading actions. We start with a universe of 500 large U.S. stocks, each with over five hundred features drawn from prices, volumes, technical signals, and WRDS fundamentals. These inputs are cleaned, aligned to when they become public, and then compressed through regularization, subset selection, and factor reduction so that only the most informative features remain.
-
-    \medskip
-    On this reduced set, we train two types of predictive models. Linear regression and its regularized forms (ridge, lasso, elastic-net) forecast continuous next-period returns, while logistic regression is used to classify the probability of an upward or downward move. Forecasts are updated on a rolling basis, ensuring the system adapts as market conditions change and discards signals that stop working.
-
-    \medskip
-    The resulting predictions flow into a clear trading rule that weighs expected return against costs and uncertainty. If the edge is strong enough, the model issues buy, sell, or hold instructions and scales the size of each trade to match its conviction, with exits managed by time stops, volatility-based stop-losses, and take-profits.
-
-    \medskip
-    The framework generalizes across all large U.S. stocks and can be applied to existing portfolios, producing daily adjustments that tilt toward likely winners and away from laggards. The end goal is simple: generate more consistent risk-adjusted returns by adding a disciplined, transparent layer on top of current holdings. Each trade is traceable to a forecast, a cost check, and a risk control, with results reported in equity curves, Sharpe ratios, drawdowns, and a full trade log.
+    This strategy implements a machine-learning strategy that transforms raw market and fundamental data into \emph{Buy/Sell/Hold} signals and corresponding position sizes.
+    The model outputs both the direction and strength of conviction, which are then mapped to trade sizes.
+    Equity grows multiplicatively by applying daily returns to these positions, and profitability is assessed relative to a risk-free benchmark.
+    Rolling-window validation ensures adaptation to changing regimes, with performance measured via both classification metrics (confusion matrix) and portfolio metrics (equity curve, Sharpe ratio, drawdown).
 
     \section*{Overview}
-    This document presents a trading workflow that connects machine-learning forecasts to clear investment rules, following the end-to-end sequence from raw data to portfolio returns. We begin with daily OHLCV data and corporate actions, adjusted so that returns reflect investor experience, combined with fundamental variables from WRDS Compustat that are timestamped to when they become publicly available. To avoid look-ahead bias, any feature not observable at decision time is shifted or dropped.
+    The workflow connects raw data, feature engineering, rolling-window classification, position sizing, and portfolio evaluation.
+    Models are retrained sequentially, predictions are converted to trades, and the compounded equity curve shows whether the system consistently beats the risk-free rate.
 
-    \medskip
-    The raw feature set for each stock exceeds five hundred variables. To control variance and improve stability, we reduce dimensionality through regularization methods such as lasso and elastic-net, through subset selection (exhaustive, forward, backward), and when needed through factor compression such as principal components. This ensures that only predictive, non-redundant inputs remain.
+    \section*{Pseudocode}
 
-    \medskip
-    On this reduced design matrix, regression models forecast continuous lead returns, while classification models estimate the probability of up versus down moves. These forecasts are evaluated through robust cross-validation schemes, including leave-one-out, k-fold, and time-slice designs with expanding or sliding windows. Rolling retraining ensures the models adapt to changing regimes.
+    \subsection*{Step 0: Data Preparation}
+    We label next-day returns and construct a multi-class classification target.
+    \begin{lstlisting}[language=]
+INPUT
+  UNIVERSE := list of tickers
+  DATE_RANGE := [t0, T]
+  FEATURES := model columns except {ticker, Y}
+  TARGET := direction ∈ {-1, 0, +1}
 
-    \medskip
-    Predictions then feed into a utility function that compares the expected edge against transaction costs and risk. Only when the net benefit is positive do we generate a trading signal. Position sizing grows with forecast strength but is capped for risk control. Exits are determined by horizon-based time stops, stop-losses tied to volatility, and take-profit rules.
+For each (permno, date):
+  Y := next-day log return
+  DIR := +1 if Y > τ_label
+         -1 if Y < -τ_label
+          0 otherwise
+    \end{lstlisting}
+    Mathematically:
+    \[
+      Y_{i,t+1} = \ln \frac{P_{i,t+1}}{P_{i,t}},
+      \quad
+      \text{DIR}_{i,t} =
+      \begin{cases}
+      +1 & Y_{i,t+1} > \tau, \\
+      -1 & Y_{i,t+1} < -\tau, \\
+      0 & \text{otherwise.}
+      \end{cases}
+    \]
 
-    \medskip
-    Finally, the individual stock signals are aggregated at the portfolio level. We compare equal-weight, mean--variance, and long--short selection strategies where the system goes long the best predicted performers and short the worst. Performance is tracked by cumulative returns, Sharpe and modified Sharpe ratios, turnover, and drawdowns, with full traceability through a trade blotter and reproducible configurations. This pipeline, grounded in the techniques of regression, classification, and dimensionality reduction, offers a disciplined and adaptive way to enhance existing U.S. equity portfolios.
+    \subsection*{Step 1: Rolling Windows}
+    We simulate a live environment by training on expanding/sliding windows.
+    \begin{lstlisting}[language=]
+TIMESLICE := {initial=260d, horizon=60d, step=20d, fixedWindow=TRUE}
+WINDOWS := []
 
-    \paragraph{Universe, cadence, and data discipline.}
-    We operate on the daily close. Market data are OHLCV; corporate actions (splits, dividends) are applied so returns reflect investor experience. Fundamentals (e.g., WRDS Compustat) are timestamped by public availability with a conservative delay; any feature that is not available at decision time is shifted or dropped (no look-ahead), as in Ch.~3.
+while start + initial + horizon ≤ T:
+    train_win := [start, start+initial)
+    valid_win := [start+initial, start+initial+horizon)
+    WINDOWS.append((train_win, valid_win))
+    start := start + step
+    \end{lstlisting}
 
-    \paragraph{Targets and predictions.}
-    Each day $t$, we build $X_t$ from price/volume history, microstructure proxies, calendar/regime flags, and lagged fundamentals. For $n \in \{1,5,20\}$ we produce an expected log-return $\mu_n(t)$ and an uncertainty proxy $\sigma_n(t)$ (or quantiles).
+    \subsection*{Step 2: Preprocessing}
+    To stabilize features we apply per-date normalization.
+    \begin{lstlisting}[language=]
+function preprocess_slice(SLICE):
+    for each date d:
+        Xd := SLICE[*, d, FEATURES]
+        Xd := winsorize(Xd, p=1%)
+        Xd := zscore_by_date(Xd)
+        SLICE[*, d, FEATURES] := Xd
+    return SLICE
+    \end{lstlisting}
 
-    \paragraph{Feature dimensionality reduction.}
-    From WRDS and technical indicators, the raw feature set easily exceeds $500$ variables per stock. With a universe of $\sim 500$ U.S. stocks, this yields a very high-dimensional prediction problem. We apply:
-    \begin{itemize}[leftmargin=1.25em]
-        \item \textbf{Regularization} (lasso, elastic-net) to shrink irrelevant coefficients to zero.
-        \item \textbf{Subset selection} (exhaustive, forward, backward) to retain only predictive variables.
-        \item \textbf{Principal Components / factor models} optionally reduce correlated groups into low-rank factors.
-    \end{itemize}
-    This step ensures stable out-of-sample forecasts, controls variance, and keeps the models interpretable. Dimensionality reduction is applied stock-by-stock before training regression models.
+    \subsection*{Step 3: Modeling}
+    Classification predicts probabilities of up, down, or neutral.
+    \begin{lstlisting}[language=]
+MODEL_TYPE := logistic or tree-boost
+HYPERGRID := parameter grid
 
-    \paragraph{From forecast to trade decision.}
-    Following the decision template we used earlier, we compare edge to cost and uncertainty:
-    \begin{equation}
-        U_n(t) \;=\; \lvert \mu_n(t) \rvert \;-\; c(t) \;-\; \kappa\,\sigma_n(t),
-        \label{eq:utility}
-    \end{equation}
-    where $c(t)$ is the one-way cost (commission $+$ spread/slippage $+$ borrow if short) and $\kappa$ is a risk buffer. If $\max_n U_n(t)\le0$, we stay flat; otherwise $n^\star=\arg\max_n U_n(t)$ and side $=\operatorname{sign}\mu_{n^\star}(t)$.
+for (train_win, valid_win) in WINDOWS:
+    TR := preprocess_slice(DF[train_win])
+    VA := preprocess_slice(DF[valid_win])
 
-    \paragraph{Sizing by conviction.}
-    Use a clipped signal-to-noise sizing, with $\beta$ as aggressiveness and $S_{\max}$ a hard cap:
-    \begin{equation}
-        S_t \;=\; \operatorname{clip}\!\Bigl( \beta \,\frac{\mu_{n^\star}(t)}{\sigma_{n^\star}(t)} \,;\, -S_{\max},\, S_{\max} \Bigr).
-        \label{eq:sizing}
-    \end{equation}
+    Fit model on TR
+    Predict class probabilities on VA
+    Score by macro-F1
+    \end{lstlisting}
+    Each model estimates:
+    \[
+       \hat{p}_{i,t}^{(+1)}, \; \hat{p}_{i,t}^{(0)}, \; \hat{p}_{i,t}^{(-1)},
+    \]
+    where $\sum \hat{p}_{i,t} = 1$.
 
-    \paragraph{Exit rules and time consistency.}
-    Time stop at $n^\star$ days if not hit before; a volatility-scaled stop-loss and a take-profit are defined ex-ante with the same timestamps/price fields as the entry.
+    \subsection*{Step 4: Generating Signals and Trade Sizes}
+    Probabilities are mapped to both direction and weight.
+    \begin{lstlisting}[language=]
+For each validation window:
+    SCORE := p(+1) - p(-1)
 
-    \section*{Modeling blocks}
+    SIGNAL :=
+        +1 if SCORE > τ_buy
+        -1 if SCORE < τ_sell
+         0 otherwise
 
-    \subsection*{Linear \& multivariate regression (Ch.~3)}
-    Let $y_t$ denote lead log returns (e.g., weekly lead in Ch.~3). The OLS estimator is
-    \begin{equation}
-        \hat{\beta}_{\mathrm{OLS}} \;=\; (X^\top X)^{-1} X^\top y,
-        \label{eq:ols}
-    \end{equation}
-    with optional \emph{HAC-robust} inference as demonstrated.
+    WEIGHT :=
+        γ * SCORE     # scaled conviction
+    \end{lstlisting}
+    So the effective portfolio weight is:
+    \[
+       w_{i,t} = \gamma \cdot \left(\hat{p}_{i,t}^{(+1)} - \hat{p}_{i,t}^{(-1)}\right),
+    \]
+    clipped to $[-w_{\max}, +w_{\max}]$.
 
-    \subsection*{Cross-validation designs (Ch.~5)}
-    We adopt the CV modes:
-    \begin{align}
-        \text{LOOCV MSE} &: \quad \frac{1}{T} \sum_{t=1}^{T} \bigl(y_t - \hat{y}_{-t}\bigr)^2, \label{eq:loocv}\\[3pt]
-        \text{$K$-fold MSE} &: \quad \frac{1}{K} \sum_{k=1}^{K} \frac{1}{\lvert \mathcal{I}_k\rvert} \sum_{t\in\mathcal{I}_k} \bigl(y_t - \hat{y}_{-k}\bigr)^2, \label{eq:kfold}
-    \end{align}
-    and \textbf{time-aware} \texttt{timeslice} CV (expanding/sliding windows) for financial stationarity/regime checks.
+    \subsection*{Step 5: Position Management}
+    Positions persist until flipped or a maximum holding period is reached.
+    \begin{lstlisting}[language=]
+For each date t:
+  if SIGNAL=+1: open/flip to long (w > 0)
+  if SIGNAL=-1: open/flip to short (w < 0)
+  if SIGNAL=0: hold if age < max_hold_days else exit
+    \end{lstlisting}
 
-    \subsection*{Regularization (Ch.~6: ridge, lasso, elastic-net)}
-    We standardize features and tune on $(\alpha,\lambda)$ grids (\texttt{glmnet}) via \texttt{train()} with \texttt{method = "glmnet"} and \texttt{trControl = timeslice}.
-    \begin{align}
-        \text{Ridge:}\quad
-        \hat{\beta}(\lambda) &= \arg\min_{\beta}\; \frac{1}{2}\lVert y - X\beta\rVert_2^2 + \lambda \lVert \beta\rVert_2^2, \label{eq:ridge}\\[3pt]
-        \text{Lasso:}\quad
-        \hat{\beta}(\lambda) &= \arg\min_{\beta}\; \frac{1}{2}\lVert y - X\beta\rVert_2^2 + \lambda \lVert \beta\rVert_1, \label{eq:lasso}\\[3pt]
-        \text{Elastic-net:}\quad
-        \hat{\beta}(\alpha,\lambda) &= \arg\min_{\beta}\; \frac{1}{2}\lVert y - X\beta\rVert_2^2 + \lambda\!\left(\alpha \lVert \beta\rVert_1 + (1-\alpha)\lVert \beta\rVert_2^2\right). \label{eq:enet}
-    \end{align}
-    We select $\lambda^\star$ (and $\alpha^\star$) by the \emph{timeslice} CV metric ($R^2$ or RMSE).
+    \subsection*{Step 6: Portfolio Equity Growth}
+    We compute daily PnL, reinvested multiplicatively.
+    \begin{lstlisting}[language=]
+For each date t:
+    port_ret[t+1] := Σ_i w_{i,t} * Y_{i,t+1}
+    equity[t+1] := equity[t] * exp(port_ret[t+1])
+    \end{lstlisting}
+    Formally:
+    \[
+       r_t = \sum_i w_{i,t} Y_{i,t+1},
+       \qquad
+       E_{t+1} = E_t \cdot e^{r_t}.
+    \]
 
-    \subsection*{Subset selection (Ch.~6: \texttt{leaps})}
-    We optionally apply exhaustive/forward/backward subset search (\texttt{regsubsets}), pick by $\text{Adj}\,R^2$ or BIC, then rebuild an OLS on the chosen subset and compute test MSE.
+    \subsection*{Step 7: Evaluation}
+    We report both classification accuracy and portfolio profitability.
+    \begin{lstlisting}[language=]
+Classification:
+  Confusion matrix (pred_dir vs true_dir)
+  Precision/Recall, Macro-F1
+  Rank correlation (pred_score vs realized return)
 
-    \section*{Portfolio construction}
-    As in the NASDAQ examples, we evaluate:
-    \begin{itemize}[leftmargin=1.25em]
-        \item Equal-weight baseline.
-        \item Mean--variance and max-diversification (train-period $\mu,\Sigma$).
-        \item \textbf{Picking long--short}: on each test date, go long the $k$ names with highest predicted returns and short the $k$ lowest, with weights
-        \[
-            w_i(t)=
-            \begin{cases}
-                +\tfrac{2}{k}, & i\in \text{Top-}k\\
-                -\tfrac{1}{k}, & i\in \text{Bottom-}k\\
-                0, & \text{otherwise,}
-            \end{cases}
-        \]
-    \end{itemize}
-    Performance is summarized by cumulative return, Sharpe (StdDev), and modified Sharpe (ES).
-
-    \section*{Train/validation/test protocol}
-    We use rolling windows with \texttt{caret}'s \texttt{timeslice} (Ch.~5) for hyperparameters ($\beta,\kappa$ in Eqs.~\eqref{eq:utility}--\eqref{eq:sizing}, and $(\alpha,\lambda)$ in Eqs.~\eqref{eq:ridge}--\eqref{eq:enet}). We hold out an unseen test year for reporting.
-
-    \section*{Reports and traceability}
-    Each run outputs an equity curve (gross/net), a trade blotter (entries/exits with reasons), turnover, hit rate, average trade P\&L, drawdowns, and cost breakdown (commission, slippage, borrow). For dividend payers we show both price-only and total-return series. Configs pin data snapshots, feature recipes, and model versions for full reproducibility.
-
-    \section*{Pipeline diagram}
-    Figure~\ref{fig:pipeline} summarizes the end-to-end flow.
-    \begin{figure}[h]
-        \centering
-        \includegraphics[width=0.78\linewidth,keepaspectratio]{fig/pipeline}
-        \caption{Overview from data to reports.}\label{fig:pipeline}
-    \end{figure}
+Portfolio:
+  Cumulative return
+  Annualized return and volatility
+  Sharpe ratio = (μ - r_f)/σ
+  Max drawdown
+  Equity curve plot
+    \end{lstlisting}
+    Confusion matrix:
+    \[
+      C = \{c_{ij}\}, \quad
+      c_{ij} = \#\{\text{true}=i, \text{pred}=j\}.
+    \]
+    Sharpe ratio:
+    \[
+      S = \frac{\mathbb{E}[r_t] - r_f}{\mathrm{Std}(r_t)}.
+    \]
 
 \end{document}
