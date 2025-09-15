@@ -88,30 +88,26 @@ def build_model_matrix_from_df(
     Build a modeling matrix to predict t+1 log returns.
 
     TARGET (Y)
-    ----------
     Y = next-day log return = log(adj_prc_{t+1} / adj_prc_t).
 
     LAG POLICY
-    ----------
     - Fama–French daily factors (mktrf, smb, hml, rf, umd): use t-1 (lag_factors).
     - IBES actuals (act_value, act_measure, pdicity): use t-1 (lag_actuals).
 
     FEATURE SET
-    -----------
-    Kept as-is:
-      adj_prc, adj_mktcap, vol, retx,
+    - adj_prc, adj_mktcap, vol, retx,
       IBES consensus fields if available: n_analysts, n_up, n_down,
       cons_mean, cons_median, cons_stdev, cons_high, cons_low, cons_cv, cons_range_pct.
 
     Added (lagged):
-      mktrf_lag{lag_factors}, smb_lag{lag_factors}, hml_lag{lag_factors},
+    - mktrf_lag{lag_factors}, smb_lag{lag_factors}, hml_lag{lag_factors},
       rf_lag{lag_factors}, umd_lag{lag_factors},
       act_value_lag{lag_actuals}, act_measure_lag{lag_actuals}, pdicity_lag{lag_actuals}.
 
     Missing-data policy:
-      - If dropna=True, only enforce non-null on ['Y'] + core_required (default:
-        'adj_prc','adj_mktcap','retx'). Optional features are allowed to be NA.
-      - If dropna=False, return all rows (you can impute later).
+    - If dropna=True, only enforce non-null on ['Y'] + core_required (default:
+      'adj_prc','adj_mktcap','retx'). Optional features are allowed to be NA.
+    - If dropna=False, return all rows (impute later).
 
     Returns
     -------
@@ -120,13 +116,13 @@ def build_model_matrix_from_df(
     """
     out = df_prices.copy()
 
-    # ---------- 1) Target Y = t+1 log return using adjusted price ----------
+    # 1) Target Y = t+1 log return using adjusted price
     if "adj_prc" not in out.columns:
         raise KeyError("build_model_matrix: expected 'adj_prc' in df_prices.")
 
     if "permno" in (out.index.names or []):
         out = out.sort_index()
-        gb = _groupby_permno(out)  # <--- use helper
+        gb = _groupby_permno(out)
         out["log_ret"] = gb["adj_prc"].transform(lambda s: np.log(s / s.shift(1)))
         out["Y"] = gb["log_ret"].transform(lambda s: s.shift(-1))
     else:
@@ -138,7 +134,7 @@ def build_model_matrix_from_df(
         out["log_ret"] = tmp["log_ret"].reindex(order)
         out["Y"] = tmp["Y"].reindex(order)
 
-    # ---------- 2) Create lagged versions for factors & actuals ----------
+    # 2) Create lagged versions for factors & actuals
     factor_cols = ["mktrf", "smb", "hml", "rf", "umd"]
     actual_cols = ["act_value", "act_measure", "pdicity"]
 
@@ -150,7 +146,7 @@ def build_model_matrix_from_df(
     if to_drop:
         out = out.drop(columns=to_drop)
 
-    # ---------- 3) Choose feature columns ----------
+    # 3) Choose feature columns
     base_features = [
         "adj_prc",
         "adj_mktcap",
@@ -174,12 +170,12 @@ def build_model_matrix_from_df(
 
     feature_cols = [c for c in base_features + lagged_features if c in out.columns]
 
-    # ---------- 4) Assemble final frame ----------
+    # 4) Assemble final frame
     lead_cols = ["ticker"] if "ticker" in out.columns else []
     final_cols = lead_cols + ["Y"] + feature_cols
     final = out[final_cols]
 
-    # ---------- 5) Controlled dropna ----------
+    # 5) Controlled dropna
     if dropna:
         # Only enforce non-null on target + core_required features (if present)
         required_now = ["Y"] + [c for c in core_required if c in final.columns]
@@ -193,7 +189,7 @@ def null_report(df: pd.DataFrame, sort: bool = True) -> pd.DataFrame:
     Generate a null report (% of missing values) for each column.
 
     Parameters
-    ----------
+
     df : pd.DataFrame
         The model matrix or any DataFrame.
     sort : bool, default=True
@@ -219,21 +215,21 @@ def null_report(df: pd.DataFrame, sort: bool = True) -> pd.DataFrame:
 
 def fillna_by_permno(df: pd.DataFrame, strategy: str = "median") -> pd.DataFrame:
     """
-    Fill missing values within each permno group.
-    Steps:
-      1. Forward fill
-      2. Backward fill
-      3. If still null, replace with fallback (zero or column mean)
+     Fill missing values within each permno group.
+     Steps:
+       1. Forward fill
+       2. Backward fill
+       3. If still null, replace with fallback (zero or column mean)
 
-    Parameters
-    ----------
-    df : DataFrame
-    strategy : {"zero", "mean", "median"}
-        How to handle values still missing after ffill+bfill.
+     Parameters
+    "
+     df : DataFrame
+     strategy : {"zero", "mean", "median"}
+         How to handle values still missing after ffill+bfill.
 
-    Returns
-    -------
-    DataFrame with nulls filled.
+     Returns
+     -------
+     DataFrame with nulls filled.
     """
     out = df.copy()
     if "permno" in (df.index.names or []):

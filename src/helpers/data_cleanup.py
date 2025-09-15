@@ -510,7 +510,6 @@ def prepare_ibes_for_daily_merge(ibes: pd.DataFrame) -> pd.DataFrame:
       2) smallest fpi (closest horizon)
       3) highest n_analysts (more robust consensus)
       4) if tie, keep first occurrence (stable)
-    Only keeps commonly useful columns for modeling; you can add more as needed.
     """
     ib = ibes.copy()
 
@@ -654,7 +653,6 @@ def prepare_ibes_actu_for_daily_merge(ibes_act: pd.DataFrame) -> pd.DataFrame:
       1) quarterly 'Q' over others
       2) most recent activation date (actdats) if available
       3) keep first (stable)
-    Keeps a lean set of useful columns.
     """
     ib = ibes_act.copy()
 
