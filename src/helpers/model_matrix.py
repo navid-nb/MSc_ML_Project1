@@ -396,10 +396,6 @@ def build_model_matrix_from_wrds(
     model_df = build_model_matrix_from_df(df_prices)
     model_df = model_df.reset_index(level=1, drop=True)
 
-    print(f"[final] df_prices shape={df_prices.shape}")
-    print(f"[final] index={list(df_prices.index.names)}")
-    print(f"[final] columns={list(df_prices.columns)}")
-
     print(f"[model] shape={model_df.shape}")
     print(f"[model] index={list(model_df.index.names)}")
     print(f"[model] columns={list(model_df.columns)}")
