@@ -145,7 +145,7 @@ def add_technical_indicators(
         hl_range = (gg[high_col] - gg[low_col]).abs()
         ema_hl = _ema(hl_range, span=chvol_ema)
         pct_change_n = _safe_div(ema_hl, ema_hl.shift(chvol_delta)) - 1.0
-        return pct_change_n.pct_change(1)
+        return pct_change_n.pct_change(1, fill_method=None)
 
     out[f"{prefix}chaikin_vol_d1"] = gb.apply(_chaikin_vol_d1_group)
 

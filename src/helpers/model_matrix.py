@@ -27,6 +27,28 @@ from src.helpers.data_extraction import wrds_extract_raw
 from src.helpers.model_indicators import add_technical_indicators
 
 
+def _permno_level_number(df: pd.DataFrame) -> int | None:
+    """Return the first index level number named 'permno', or None if absent."""
+    if isinstance(df.index, pd.MultiIndex):
+        names = list(df.index.names)
+        for i, n in enumerate(names):
+            if n == "permno":
+                return i
+    elif getattr(df.index, "name", None) == "permno":
+        return 0
+    return None
+
+
+def _groupby_permno(df: pd.DataFrame):
+    """Group by permno whether it's a column or an index level (handles duplicate names)."""
+    lvl = _permno_level_number(df)
+    if lvl is not None:
+        return df.groupby(level=lvl, group_keys=False)
+    if "permno" in df.columns:
+        return df.groupby("permno", group_keys=False)
+    raise KeyError("No 'permno' found as index level or column.")
+
+
 def _safe_shift_by_permno(df: pd.DataFrame, cols: Sequence[str], shift: int) -> pd.DataFrame:
     """
     Group-aware shift that works whether 'permno' is in index or columns.
@@ -39,7 +61,7 @@ def _safe_shift_by_permno(df: pd.DataFrame, cols: Sequence[str], shift: int) -> 
         return out
 
     if "permno" in (out.index.names or []):
-        gb = out.groupby(level="permno", group_keys=False)
+        gb = _groupby_permno(out)
         for c in present:
             out[f"{c}_lag{shift}"] = gb[c].shift(shift)
     else:
@@ -103,15 +125,11 @@ def build_model_matrix_from_df(
         raise KeyError("build_model_matrix: expected 'adj_prc' in df_prices.")
 
     if "permno" in (out.index.names or []):
-        # index-based path — ensure time order within each permno
         out = out.sort_index()
-        gb = out.groupby(level="permno", group_keys=False)
-        # log return at t = log(P_t / P_{t-1})
+        gb = _groupby_permno(out)  # <--- use helper
         out["log_ret"] = gb["adj_prc"].transform(lambda s: np.log(s / s.shift(1)))
-        # Y at t = log_ret at t+1
         out["Y"] = gb["log_ret"].transform(lambda s: s.shift(-1))
     else:
-        # column-based path
         order = out.index
         tmp = out.sort_values(["permno", "date"]).copy()
         gb = tmp.groupby("permno", group_keys=False)
