@@ -1,4 +1,4 @@
-from typing import Literal, Sequence
+from typing import Literal, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -354,77 +354,48 @@ def reindex_each_permno_to_global_calendar(
     fill: Literal["none", "ffill", "bfill", "both"] = "both",
     final_strategy: Literal["none", "zero", "mean", "median"] = "median",
     only_columns: Sequence[str] | None = None,
+    calendar: Optional[pd.Index] = None,
 ) -> pd.DataFrame:
-    """
-    Reindex every (id_name) to the union of *all* trading dates in df.
-    Works whether (id_name, date_name) are index levels or columns.
-
-    Parameters
-    ----------
-    df : DataFrame
-        Input panel with at least id_name and date_name (as index or columns).
-    date_name : str
-        Date level/column name.
-    id_name : str
-        Security identifier level/column name (permno).
-    fill : {"none","ffill","bfill","both"}
-        Optional per-id time fill after reindex.
-    final_strategy : {"none","zero","mean","median"}
-        Final global fill for any remaining NaNs (numeric columns only).
-    only_columns : list[str] | None
-        If provided, restrict reindexing return to these columns (+ id/date). Useful to save memory.
-
-    Returns
-    -------
-    DataFrame reindexed to a full (id × global_dates) grid, sorted by (id,date).
-    """
     work = df.copy()
-    idx_names = list(work.index.names or [])
 
-    # Drop duplicate column if also present in index
-    if id_name in idx_names and id_name in work.columns:
-        work = work.drop(columns=id_name)
-    if date_name in idx_names and date_name in work.columns:
-        work = work.drop(columns=date_name)
+    # Normalize index -> columns to avoid ambiguity
+    if isinstance(work.index, pd.MultiIndex) or work.index.name in (id_name, date_name):
+        work = work.reset_index()
 
-    if id_name in idx_names:
-        work[id_name] = work.index.get_level_values(id_name)
-    if date_name in idx_names:
-        work[date_name] = work.index.get_level_values(date_name)
-
-    # Coerce date to datetime and sort
+    work = work.loc[:, ~work.columns.duplicated()]  # keep first if dup names
     work[date_name] = pd.to_datetime(work[date_name], errors="raise")
     work = work.sort_values([id_name, date_name])
 
-    # Build global calendar = union of all dates in df
-    global_dates = _get_date_index(work, date_name=date_name)
+    # Build master calendar
+    if calendar is None:
+        # Fallback to union of dates present (behaves like your current version)
+        calendar = pd.Index(work[date_name].drop_duplicates().sort_values(), name=date_name)
+    else:
+        calendar = pd.Index(pd.to_datetime(calendar), name=date_name).sort_values()
 
-    # All ids
     ids = pd.Index(work[id_name].unique(), name=id_name)
+    full_index = pd.MultiIndex.from_product([ids, calendar], names=[id_name, date_name])
 
-    # Full target index (id × global_dates)
-    full_index = pd.MultiIndex.from_product([ids, global_dates], names=[id_name, date_name])
-
-    # Set index and reindex
+    # Select columns
     if only_columns is None:
         cols = [c for c in work.columns if c not in (id_name, date_name)]
     else:
-        keep = set(only_columns) | {id_name, date_name}
+        keep = set(only_columns)
         cols = [c for c in work.columns if c in keep and c not in (id_name, date_name)]
 
     out = work.set_index([id_name, date_name])[cols].reindex(full_index).sort_index()
 
-    # Optional per-id fills
+    # Optional per-id fill
     if fill in {"ffill", "bfill", "both"}:
         gb = out.groupby(level=0, group_keys=False)
         if fill == "ffill":
             out = gb.ffill()
         elif fill == "bfill":
             out = gb.bfill()
-        else:  # "both"
+        else:
             out = gb.ffill().groupby(level=0, group_keys=False).bfill()
 
-    # Final global fallback for numeric columns
+    # Final numeric fallback
     if final_strategy != "none":
         if final_strategy == "zero":
             out = out.fillna(0)
