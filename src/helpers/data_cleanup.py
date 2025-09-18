@@ -9,7 +9,17 @@ pd.set_option("display.max_columns", None)
 
 def parquet_to_df(artifacts: Dict[str, str], name: str) -> pd.DataFrame:
     """
-    artifacts: mapping {parquet_name -> full_path} from wrds_extract_raw
+    Load a Parquet file from the from wrds extracts as a DataFrame.
+
+    Args:
+        artifacts (Dict[str, str]): Mapping of artifact names to Parquet file paths. mapping {parquet_name -> full_path}
+        name (str): The key name of the Parquet artifact to load.
+
+    Returns:
+        pd.DataFrame: The loaded DataFrame.
+    
+    Raises:
+        FileNotFoundError: If the artifact is missing or path does not exist.
     """
     path = artifacts.get(name)
     if not path or not os.path.isfile(path):
@@ -18,13 +28,30 @@ def parquet_to_df(artifacts: Dict[str, str], name: str) -> pd.DataFrame:
 
 
 def coalesce_date_end(s: pd.Series) -> pd.Series:
-    """CRSP uses NULL end as 'still valid'; convert to far-future date."""
+    """
+    Convert NULL/NaT end dates (CRSP convention for 'still valid') to a far-future timestamp.
+
+    Args:
+        s (pd.Series): Series of date-like values representing end dates.
+
+    Returns:
+        pd.Series: Series with NaT replaced by `9999-12-31`.
+    """
     return s.fillna(pd.Timestamp("9999-12-31"))
 
 
 def _ensure_datetime_cols(df: pd.DataFrame, cols: List[str], label: str) -> None:
     """
-    Ensure the listed *columns* are datetime64 (convert in-place if needed).
+    Ensure specified columns exist in df and are of datetime64 dtype; convert if possible.
+
+    Args:
+        df (pd.DataFrame): DataFrame to check/convert.
+        cols (List[str]): List of column names to enforce datetime on.
+        label (str): Name label for error messages.
+
+    Raises:
+        KeyError: If given columns not present.
+        TypeError: If conversion to datetime64 is impossible.
     """
     for c in cols:
         if c not in df.columns:
@@ -41,7 +68,19 @@ def _ensure_datetime_cols(df: pd.DataFrame, cols: List[str], label: str) -> None
 
 def _ensure_datetime_index(df: pd.DataFrame, levels: List[str], label: str) -> pd.DataFrame:
     """
-    Ensure the listed *index levels* are datetime64 (return a DataFrame with fixed index).
+    Ensure specified index levels are datetime64, converting if needed. Returns DataFrame with fixed index.
+
+    Args:
+        df (pd.DataFrame): DataFrame to check.
+        levels (List[str]): Index level names that must be datetime64.
+        label (str): Label for error messages.
+
+    Returns:
+        pd.DataFrame: DataFrame with updated datetime index levels.
+
+    Raises:
+        KeyError: If index levels missing.
+        TypeError: If conversion fails.
     """
     if df.index.names is None:
         raise KeyError(f"{label}: no named index to fix.")
@@ -74,8 +113,23 @@ def ensure_index(
     df: pd.DataFrame, cols: List[str], *, sort: bool = True, keep_cols: bool = True
 ) -> pd.DataFrame:
     """
-    Make `cols` the (multi)index, optionally keep them as columns, and sort.
-    Idempotent: if index already matches, just (re)sort.
+    Set the specified columns as the (multi)index of the DataFrame.
+    Optionally, keep those columns as part of the DataFrame (do not drop).
+    Sort the DataFrame by its index after setting the index.
+    This function is idempotent: if the DataFrame's current index names match the
+    requested columns, it will not reset the index but will sort it if requested.
+
+    Args:
+        df (pd.DataFrame): The DataFrame to operate on.
+        cols (List[str]): List of column names to set as the index.
+        sort (bool, optional): Whether to sort the DataFrame by the new index. Default True.
+        keep_cols (bool, optional): Whether to keep the columns as regular columns (True) or drop them (False). Default True.
+
+    Returns:
+        pd.DataFrame: DataFrame with the specified columns as index, optionally sorted.
+
+    Example:
+        df = ensure_index(df, ['permno', 'date'], sort=True, keep_cols=False)
     """
     if list(df.index.names or []) != cols:
         df = df.set_index(cols, drop=not keep_cols)
@@ -86,8 +140,22 @@ def ensure_index(
 
 def _get_key_frame(df: pd.DataFrame, key_cols: List[str]) -> pd.DataFrame:
     """
-    Build a temporary DataFrame with the requested keys as *columns*,
-    regardless of whether they exist as columns or index levels.
+    Build a temporary DataFrame that contains only the requested key columns as normal columns,
+    regardless of whether those keys are originally columns or index levels in the input DataFrame.
+
+    Args:
+        df (pd.DataFrame): The source DataFrame.
+        key_cols (List[str]): Names of the key columns or index levels to extract.
+
+    Returns:
+        pd.DataFrame: A new DataFrame containing the key columns as regular columns.
+
+    Raises:
+        KeyError: If any key in key_cols is not found as either a column or an index level.
+
+    Example:
+        # If 'permno' is an index level and 'date' is a column
+        keys_df = _get_key_frame(df, ['permno', 'date'])
     """
     idx_names = list(df.index.names) if df.index.names is not None else []
     data = {}
@@ -103,8 +171,15 @@ def _get_key_frame(df: pd.DataFrame, key_cols: List[str]) -> pd.DataFrame:
 
 def check_key_dupes(df: pd.DataFrame, key_cols: List[str], label: str) -> None:
     """
-    Ensure `key_cols` form a unique key (names can be columns OR index levels).
-    Raises with top offenders if duplicates exist.
+    Check that specified key columns form a unique key in the DataFrame, across columns or index.
+
+    Args:
+        df (pd.DataFrame): DataFrame to check.
+        key_cols (List[str]): List of columns or index levels to verify uniqueness.
+        label (str): Label referring to data for error messages.
+
+    Raises:
+        AssertionError: If duplicates found, providing top offending examples.
     """
     keys_df = _get_key_frame(df, key_cols)
     dup_mask = keys_df.duplicated(keep=False)
@@ -123,7 +198,17 @@ def assert_no_new_rows(
     df_left: pd.DataFrame, df_joined: pd.DataFrame, *, left_name: str, join_name: str
 ) -> None:
     """
-    Protect against accidental many-to-many fan-out.
+    Ensure that a join does not produce more rows than the left DataFrame,
+    protecting against accidental many-to-many expansions.
+
+    Args:
+        df_left (pd.DataFrame): Left-side DataFrame before join.
+        df_joined (pd.DataFrame): DataFrame after join.
+        left_name (str): Name label for df_left for error messages.
+        join_name (str): Name label for join/DataFrame after join.
+
+    Raises:
+        AssertionError: If df_joined has more rows than df_left.
     """
     if df_joined.shape[0] > df_left.shape[0]:
         raise AssertionError(
@@ -134,7 +219,14 @@ def assert_no_new_rows(
 
 def _fill_prev_positive(series: pd.Series) -> pd.Series:
     """
-    Replace non-positive values with NaN, then forward-fill/backfill to nearest positive value.
+    Replace non-positive values in the series with NaN, then forward-fill and back-fill
+    to the nearest positive value on both sides.
+
+    Args:
+        series (pd.Series): Numeric series to clean.
+
+    Returns:
+        pd.Series: Series with non-positive values replaced by nearest positive values.
     """
     s = series.where(series > 0)  # keep > 0; null others
     return s.ffill().bfill()
@@ -142,7 +234,19 @@ def _fill_prev_positive(series: pd.Series) -> pd.Series:
 
 def _to_columns(df: pd.DataFrame, names: List[str]) -> Tuple[pd.DataFrame, List[str]]:
     """
-    Ensure `names` exist as columns (copying them from index if needed). Returns (df, added_from_index).
+    Ensure that specified names exist as regular columns in the DataFrame,
+    copying them from the index levels if necessary.
+
+    Args:
+        df (pd.DataFrame): Input DataFrame.
+        names (List[str]): Names of columns or index levels to ensure as columns.
+
+    Returns:
+        Tuple[pd.DataFrame, List[str]]: A copy of df with the requested names as columns,
+                                        and a list of names that were added from the index.
+
+    Raises:
+        KeyError: If any name is not found as columns or index levels.
     """
     out = df.copy()
     added: List[str] = []
@@ -162,7 +266,15 @@ def _restore_index_if_needed(
     df: pd.DataFrame, original_index_names: List[str] | None
 ) -> pd.DataFrame:
     """
-    If the caller had an index, restore it by those names. Else, leave as columns.
+    Restore the original index to the DataFrame if index names are provided;
+    otherwise, returns the DataFrame unchanged.
+
+    Args:
+        df (pd.DataFrame): DataFrame to adjust.
+        original_index_names (List[str] | None): Original index column names.
+
+    Returns:
+        pd.DataFrame: DataFrame with restored index if names provided, else unchanged.
     """
     if original_index_names and any(original_index_names):
         return df.set_index(original_index_names)
@@ -171,11 +283,19 @@ def _restore_index_if_needed(
 
 def pre_qa_dsf(dsf: pd.DataFrame) -> None:
     """
-    Minimal checks:
-      - 'date' dtype
-      - warn on non-positive adjustment factors
-      - warn on negative PRC share
-      - check uniqueness on (permno, date)
+    Preliminary quality assurance checks on the Daily Stock File (DSF).
+
+    Checks:
+    - 'date' is a datetime field (column or index).
+    - Warns if adjustment factors (cfacpr, cfacshr) are non-positive.
+    - Warns on negative price values.
+    - Validates uniqueness on (permno, date).
+
+    Args:
+        dsf (pd.DataFrame): Daily Stock File DataFrame.
+
+    Raises:
+        KeyError: If 'date' is not found.
     """
     # Handle date as column or index
     if "date" in (dsf.index.names or []):
@@ -202,9 +322,15 @@ def pre_qa_dsf(dsf: pd.DataFrame) -> None:
 
 def impute_negative_crsp_factors_and_price(dsf: pd.DataFrame) -> pd.DataFrame:
     """
-    For each permno, replace non-positive values in {cfacpr, cfacshr, prc}
-    with the nearest previous positive value (fallback to next positive via bfill).
-    Then recompute adjusted fields (adj_prc, adj_shrout, adj_mktcap).
+    For each permno, replace non-positive values in adjustment factors (cfacpr, cfacshr)
+    and price (prc) with the nearest previous positive value (fallback via backfill).
+    Recompute adjusted price, shares outstanding, and market cap.
+
+    Args:
+        dsf (pd.DataFrame): Daily Stock File DataFrame.
+
+    Returns:
+        pd.DataFrame: Copy of dsf with imputed positive adjustment factors and adjusted columns.
     """
     # Work with a sorted view, regardless of index vs columns
     idx_names = list(dsf.index.names or [])
@@ -239,10 +365,15 @@ def impute_negative_crsp_factors_and_price(dsf: pd.DataFrame) -> pd.DataFrame:
 
 def pre_qa_stocknames(sn: pd.DataFrame) -> None:
     """
+    Preliminary quality checks on stock names file.
+
     Checks:
-      - namedt/nameenddt datetime
-      - warning on namedt > nameenddt
-      - warning on overlapping windows (can duplicate rows on as-of join)
+    - 'namedt' and 'nameenddt' are datetime types.
+    - Warns if any 'namedt' > 'nameenddt'.
+    - Warns if overlapping name windows exist for the same permno.
+
+    Args:
+        sn (pd.DataFrame): Stock names data.
     """
     # Handle dates whether columns or index levels
     if {"namedt", "nameenddt"}.issubset(sn.columns):
@@ -301,6 +432,26 @@ def pre_qa_stocknames(sn: pd.DataFrame) -> None:
 
 def join_dsf_with_stocknames(dsf: pd.DataFrame, stock_names: pd.DataFrame) -> pd.DataFrame:
     """
+    Perform an as-of join between the Daily Stock File (DSF) and stock names.
+
+    Steps:
+    1. Reset indexes and work with columns for clarity.
+    2. Left merge on 'permno' (unique stock identifier).
+    3. Filter merged rows where DSF date falls into the valid name interval [namedt, nameenddt_eff].
+    4. For overlapping intervals, keep the record with the latest 'namedt'.
+    5. Ensure no row inflation after the join.
+    6. Drop interval columns used for filtering.
+    7. Prefer 'ncusip' over 'cusip' if both exist.
+    8. Restore original index.
+
+    Args:
+        dsf (pd.DataFrame): Daily Stock File data.
+        stock_names (pd.DataFrame): Stock names data with validity intervals.
+
+    Returns:
+        pd.DataFrame: Joined DataFrame with stock names merged into DSF.
+    """
+    """
     As-of join logic:
       1) Work in columns (reset index if needed).
       2) Left-merge on permno.
@@ -352,10 +503,16 @@ def join_dsf_with_stocknames(dsf: pd.DataFrame, stock_names: pd.DataFrame) -> pd
 
 def post_join_qa_prices(df: pd.DataFrame) -> None:
     """
-    Light checks after DSF ⟵ stocknames:
-      - Uniqueness on (permno,date)
-      - Ticker coverage
-      - Adjusted price / market cap sanity
+    Basic quality checks after joining DSF with stock names.
+
+    Checks:
+    - Uniqueness on (permno, date).
+    - Reports fraction of rows missing ticker mapping.
+    - Warns on near-zero adjusted prices.
+    - Warns on negative market capitalizations.
+
+    Args:
+        df (pd.DataFrame): DataFrame after DSF-stocknames join.
     """
     check_key_dupes(df, ["permno", "date"], "df_prices")
 
@@ -379,10 +536,16 @@ def post_join_qa_prices(df: pd.DataFrame) -> None:
 
 def pre_qa_ff(ff: pd.DataFrame) -> None:
     """
-    Basic hygiene on Fama–French daily factors:
-      - 'date' must be datetime64
-      - unique by 'date'
-      - finite values; warn on extreme magnitudes
+    Basic preprocessing quality assurance for Fama-French daily factors.
+
+    Checks required presence of columns: date, mktrf, smb, hml, rf.
+    Ensures 'date' is datetime64.
+    Verifies uniqueness by date.
+    Warns on infinite or missing values.
+    Warns on exceptionally large daily factor values.
+
+    Args:
+        ff (pd.DataFrame): Fama-French factor data.
     """
     req = {"date", "mktrf", "smb", "hml", "rf"}
     missing = req - set(ff.columns)
@@ -419,9 +582,16 @@ def pre_qa_ff(ff: pd.DataFrame) -> None:
 
 def join_prices_with_ff(df_prices: pd.DataFrame, ff: pd.DataFrame) -> pd.DataFrame:
     """
-    Left-join daily prices with Fama–French factors by 'date'.
-    - Works whether df_prices is indexed or not; preserves original index.
-    - Guarantees no row inflation.
+    Left-join daily prices with Fama-French daily factors on 'date'.
+
+    Preserves original index and guarantees no row inflation.
+
+    Args:
+        df_prices (pd.DataFrame): Daily price data.
+        ff (pd.DataFrame): Fama-French factor data.
+
+    Returns:
+        pd.DataFrame: Joined price and factor data.
     """
     # Preserve original index (if any)
     orig_idx = list(df_prices.index.names or [])
@@ -453,9 +623,13 @@ def join_prices_with_ff(df_prices: pd.DataFrame, ff: pd.DataFrame) -> pd.DataFra
 
 def post_join_qa_prices_with_ff(df: pd.DataFrame) -> None:
     """
-    After adding FF factors:
-      - Still unique on (permno, date)?
-      - Missing rates for factors
+    Quality checks after adding Fama-French factors.
+
+    Checks uniqueness on (permno, date).
+    Reports missing values for key factors.
+
+    Args:
+        df (pd.DataFrame): DataFrame after joining with FF factors.
     """
     # If the frame is indexed by (permno,date) we’re good; else check via columns
     idx_names = list(df.index.names or [])
@@ -473,10 +647,14 @@ def post_join_qa_prices_with_ff(df: pd.DataFrame) -> None:
 
 def pre_qa_ibes_statsumu(ibes: pd.DataFrame) -> None:
     """
-    Basic hygiene for IBES statsumu EPS (unadjusted):
-      - required columns
-      - 'stat_date' datetime64
-      - identify potential duplication granularity
+    Basic hygiene for IBES statsumu (unadjusted EPS consensus):
+
+    Checks required columns are present.
+    Ensures 'stat_date' is datetime.
+    Reports cases with multiple rows per (official_ticker, stat_date).
+
+    Args:
+        ibes (pd.DataFrame): IBES statsumu data.
     """
     req = {
         "official_ticker",  # oftic
@@ -504,12 +682,19 @@ def pre_qa_ibes_statsumu(ibes: pd.DataFrame) -> None:
 
 def prepare_ibes_for_daily_merge(ibes: pd.DataFrame) -> pd.DataFrame:
     """
-    Collapse IBES to one row per (official_ticker, stat_date) to avoid row inflation when
-    joining daily prices. Preference order:
-      1) periodicity='Q' over others
-      2) smallest fpi (closest horizon)
-      3) highest n_analysts (more robust consensus)
-      4) if tie, keep first occurrence (stable)
+    Collapse IBES data to one row per (official_ticker, stat_date) to avoid row inflation.
+
+    Preference order:
+    1) Quarterly ('Q') periodicity over others.
+    2) Smallest forecast horizon (fpi).
+    3) Largest number of analysts.
+    4) First occurrence if ties.
+
+    Args:
+        ibes (pd.DataFrame): Raw IBES consensus data.
+
+    Returns:
+        pd.DataFrame: Deduplicated IBES data ready for merge.
     """
     ib = ibes.copy()
 
@@ -558,12 +743,17 @@ def prepare_ibes_for_daily_merge(ibes: pd.DataFrame) -> pd.DataFrame:
 
 def join_prices_with_ibes(df_prices: pd.DataFrame, ibes_daily: pd.DataFrame) -> pd.DataFrame:
     """
-    Join daily prices with IBES consensus summary (one row per (official_ticker, stat_date)).
-    Keys:
-      - df_prices: join on (ticker == official_ticker) and (date == stat_date)
-    Guarantees:
-      - Left join; no row inflation
-      - Restores original index of df_prices if present
+    Join daily prices with IBES consensus on (ticker, date) keys.
+
+    Left join without row inflation.
+    Restores dataframe original index.
+
+    Args:
+        df_prices (pd.DataFrame): Prices data.
+        ibes_daily (pd.DataFrame): Prepared IBES consensus data.
+
+    Returns:
+        pd.DataFrame: DataFrame enriched with IBES consensus.
     """
     # Work in columns for merge clarity; remember original index
     base_index_names = list(df_prices.index.names or [])
@@ -606,9 +796,14 @@ def join_prices_with_ibes(df_prices: pd.DataFrame, ibes_daily: pd.DataFrame) -> 
 
 def post_join_qa_prices_with_ibes(df: pd.DataFrame) -> None:
     """
-    After adding IBES fields:
-      - Still unique on (permno,date)?
-      - Coverage for consensus fields
+    Quality assurance after merging IBES consensus.
+
+    Checks:
+    - Uniqueness on (permno, date).
+    - Reports coverage (missingness) of consensus columns.
+
+    Args:
+        df (pd.DataFrame): Price data merged with IBES.
     """
     idx_names = list(df.index.names or [])
     if {"permno", "date"}.issubset(idx_names):
@@ -626,10 +821,14 @@ def post_join_qa_prices_with_ibes(df: pd.DataFrame) -> None:
 
 def pre_qa_ibes_actu(ibes_act: pd.DataFrame) -> None:
     """
-    Hygiene for IBES actuals (EPS):
-      - required columns
-      - 'anndats' datetime64
-      - show multi-rows per (official_ticker, anndats)
+    Hygiene checks for IBES actuals (real EPS):
+
+    - Required columns present.
+    - 'anndats' is datetime.
+    - Reports multiple rows per (official_ticker, anndats), if any.
+
+    Args:
+        ibes_act (pd.DataFrame): IBES actual EPS data.
     """
     req = {"oftic", "anndats", "pdicity", "act_measure", "act_value", "usfirm"}
     missing = req - set(ibes_act.columns)
@@ -648,11 +847,18 @@ def pre_qa_ibes_actu(ibes_act: pd.DataFrame) -> None:
 
 def prepare_ibes_actu_for_daily_merge(ibes_act: pd.DataFrame) -> pd.DataFrame:
     """
-    Collapse to one row per (official_ticker, anndats) to avoid row inflation.
-    Preference:
-      1) quarterly 'Q' over others
-      2) most recent activation date (actdats) if available
-      3) keep first (stable)
+    Collapse IBES actuals to one row per (official_ticker, anndats).
+
+    Preference order:
+    1) Quarterly ('Q') over other periodicities.
+    2) Most recent activation date.
+    3) First occurrence if ties.
+
+    Args:
+        ibes_act (pd.DataFrame): Raw IBES actual EPS data.
+
+    Returns:
+        pd.DataFrame: Deduplicated and cleaned IBES actuals.
     """
     ib = ibes_act.copy()
 
@@ -696,9 +902,18 @@ def join_prices_with_ibes_actu(
     df_prices: pd.DataFrame, ibes_act_daily: pd.DataFrame
 ) -> pd.DataFrame:
     """
-    Left-join daily prices with IBES actuals (EPS):
-      keys: (ticker == official_ticker) & (date == ann_date)
-    No row inflation; restores original index.
+    Left-join daily prices with IBES actual EPS data on (ticker == official_ticker) and (date == ann_date).
+
+    Guarantees:
+    - No row inflation (same number of rows as df_prices).
+    - Restores the original index of df_prices if it had one.
+
+    Args:
+        df_prices (pd.DataFrame): Daily prices data.
+        ibes_act_daily (pd.DataFrame): Prepared IBES actual EPS data.
+
+    Returns:
+        pd.DataFrame: Prices enriched with actual EPS announcements.
     """
     base_index = list(df_prices.index.names or [])
     need_reset = any(base_index)
@@ -733,10 +948,15 @@ def join_prices_with_ibes_actu(
 
 def post_join_qa_prices_with_ibes_actu(df: pd.DataFrame) -> None:
     """
-    After adding IBES actuals:
-      - Still unique on (permno,date)?
-      - Coverage of EPS actuals
-      - Heads-up on after/before close timing
+    Quality assurance checks after merging IBES actual EPS data.
+
+    Checks:
+    - Uniqueness on (permno, date).
+    - Reports coverage (missingness) of the 'act_value' column.
+    - Optionally reports distribution of announcement time buckets if present.
+
+    Args:
+        df (pd.DataFrame): DataFrame with prices and IBES actuals.
     """
     idx_names = list(df.index.names or [])
     if not {"permno", "date"}.issubset(idx_names):

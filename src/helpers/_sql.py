@@ -8,6 +8,15 @@ import wrds
 
 
 def wrds_connect(wrds_user: str) -> wrds.Connection:
+    """
+    Establish a connection to the WRDS database using the provided username.
+
+    Args:
+        wrdsuser (str): WRDS username for authentication.
+
+    Returns:
+        wrds.Connection: An active connection object to the WRDS database.
+    """
     return wrds.Connection(wrds_username=wrds_user, verbose=True)
 
 
@@ -18,6 +27,19 @@ def query_to_parquet(
     params: Optional[Dict[str, Any]] = None,
     chunk_size: int = 500_000,
 ) -> None:
+    """
+    Execute a SQL query using WRDS connection and save the result to a Parquet file in chunks.
+
+    Args:
+        conn (wrds.Connection): Active WRDS connection object.
+        sqlpath (str): Path to SQL file containing the query.
+        outpath (str): Destination filepath for the Parquet output.
+        params (Optional[Dict[str, Any]]): Dictionary of SQL parameters, if required.
+        chunksize (int): Number of rows per chunk for processing large results.
+
+    Returns:
+        None
+    """
     sql = open(sql_path).read()
     params = params or {}
     writer = None
@@ -39,10 +61,19 @@ def extract_artifacts(
     force: bool = False,
 ) -> None:
     """
-    Run all SQL files to Parquet.
+    Loop through all requested SQL/extraction artifacts, running queries and saving to Parquet.
+    Skips outputs that already exist unless force is True.
 
-    - If force=True: always (re)write Parquet files.
-    - If force=False: skip files that already exist (not used in this flow).
+    Args:
+        conn (wrds.Connection): WRDS database connection.
+        artifacts (List[tuple]): List of (SQL file path, output filename) pairs.
+        outdir (str): Directory to save Parquet outputs.
+        params (Optional[Dict[str, Any]]): Parameters to use in SQL queries.
+        chunksize (int): Row count per chunk for extraction.
+        force (bool): If True, overwrite existing files; If False, skip files that already exist (not used in this flow).
+
+    Returns:
+        None
     """
     for sqlfile, outfile in artifacts:
         outpath = os.path.join(outdir, outfile)
@@ -58,7 +89,20 @@ def extract_artifacts(
 
 
 def assert_artifacts_present(outdir: str, artifacts: List[tuple[str, str]]) -> None:
-    """Raise AssertionError listing any missing Parquet outputs."""
+    """
+    Check that all expected Parquet files exist in the output directory. 
+    Raises AssertionError and lists any missing outputs.
+
+    Args:
+        outdir (str): Directory to verify for output files.
+        artifacts (List[tuple]): List of (SQL file path, output filename) pairs.
+
+    Raises:
+        AssertionError: If any output files are missing.
+
+    Returns:
+        None
+    """
     missing = []
     for _, fname in artifacts:
         if not os.path.isfile(os.path.join(outdir, fname)):

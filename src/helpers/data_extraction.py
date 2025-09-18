@@ -14,7 +14,29 @@ def wrds_extract_raw(
     base_dir: str,
     artifacts: List[Tuple[str, str]],
 ) -> Dict[str, Any]:
+    """
+    Orchestrate raw data extraction from WRDS with directory and reuse management.
 
+    This function sets up the run folder according to the user's choice (new run, reuse last, or specific run),
+    connects to WRDS using given credentials, and runs SQL queries for all requested data artifacts.
+    Data is extracted in chunks and saved as Parquet files in the run folder.
+    If reuse mode is selected, it validates that the expected Parquet files already exist and skips extraction.
+
+    Args:
+        wrds_user (str): WRDS username for authentication.
+        start (str): Start date for data extraction (e.g., "YYYY-MM-DD").
+        end (str): End date for data extraction (e.g., "YYYY-MM-DD").
+        chunk_size (int): Number of rows to fetch per chunk from WRDS.
+        use_run (str): Specifies run mode ("new", "last", or explicit run folder name).
+        base_dir (str): Base directory under which to organize run folders.
+        artifacts (List[Tuple[str, str]]): List of (SQL file path, output Parquet filename) tuples to extract.
+
+    Returns:
+        Dict[str, Any]: Contains keys:
+            - "run_folder": Path of the run folder used for extraction.
+            - "reuse": Boolean flag whether the run folder was reused.
+            - "artifacts": Dict mapping Parquet filenames to their absolute paths.
+    """
     ensure_dir(base_dir)
     run_dir, run_name, reuse = make_run_folder(base_dir, use_run)
     print(f"[info] Using run folder: {run_name} (reuse={reuse})")

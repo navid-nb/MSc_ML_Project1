@@ -5,6 +5,14 @@ from typing import List, Optional
 
 
 def list_runs(base_dir: str) -> List[str]:
+    """
+    List all subdirectories in the base directory whose names start with 'run'.
+    Args:
+        basedir (str): The directory path to search for run folders.
+
+    Returns:
+        List[str]: A sorted list of run folder names within the base directory.
+    """
     if not os.path.isdir(base_dir):
         return []
     runs = [
@@ -17,6 +25,14 @@ def list_runs(base_dir: str) -> List[str]:
 
 
 def latest_run(base_dir: str) -> Optional[str]:
+    """
+    Return the latest (most recently sorted) run folder name in the base directory.
+    Args:
+        basedir (str): The base directory containing run folders.
+
+    Returns:
+        Optional[str]: The name of the latest run folder, or None if none exist.
+    """
     runs = list_runs(base_dir)
     return runs[-1] if runs else None
 
@@ -26,6 +42,19 @@ def ensure_dir(path: str) -> None:
 
 
 def safe_delete_dir(path: str, base: str) -> None:
+    """
+    Safely delete the target directory only if it resides within the base directory.
+
+    Args:
+        path (str): The directory to delete.
+        base (str): The allowed parent directory for deletion safety.
+
+    Raises:
+        ValueError: If the target path is not under the base directory.
+
+    Returns:
+        None
+    """
     abs_path = os.path.abspath(path)
     abs_base = os.path.abspath(base)
 
@@ -38,12 +67,20 @@ def safe_delete_dir(path: str, base: str) -> None:
 
 def make_run_folder(base_dir: str, use_run: str) -> tuple[str, str, bool]:
     """
-    Decide run folder name and create it if needed.
-    Returns (abs_path, name, reuse_flag).
+    Decide on a run folder name and create the folder if needed.
 
-    - use_run == "new":     create a fresh timestamped folder (reuse=False)
-    - use_run == "last":    reuse the latest run if exists, else create new
-    - else:                 treat as explicit folder name; reuse if it exists
+    Args:
+        basedir (str): Base directory to store run folders.
+        userun (str): Controls folder creation:
+            - "new": create a fresh timestamped folder.
+            - "last": reuse the most recent run folder if it exists.
+            - explicit folder name: use/reuse that folder name.
+
+    Returns:
+        tuple: (absolute path to folder, folder name, reuse flag)
+            - (str): absolute path to the run folder.
+            - (str): run folder name.
+            - (bool): True if reusing an existing folder, False if creating new.
     """
     if use_run == "new":
         stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
