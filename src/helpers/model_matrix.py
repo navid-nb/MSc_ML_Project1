@@ -28,7 +28,15 @@ from src.helpers.model_indicators import add_technical_indicators
 
 
 def _permno_level_number(df: pd.DataFrame) -> int | None:
-    """Return the first index level number named 'permno', or None if absent."""
+    """
+    Return the integer position of the first index level named 'permno', or None if absent.
+
+    Args:
+        df (pd.DataFrame): Input DataFrame, possibly with MultiIndex.
+
+    Returns:
+        int | None: Integer index of 'permno' level, or None if not found.
+    """
     if isinstance(df.index, pd.MultiIndex):
         names = list(df.index.names)
         for i, n in enumerate(names):
@@ -40,7 +48,20 @@ def _permno_level_number(df: pd.DataFrame) -> int | None:
 
 
 def _groupby_permno(df: pd.DataFrame):
-    """Group by permno whether it's a column or an index level (handles duplicate names)."""
+    """
+    Group the DataFrame by 'permno', whether it's an index level or a column.
+
+    Handles duplicate index level names by using the first 'permno' index level.
+
+    Args:
+        df (pd.DataFrame): Input DataFrame.
+
+    Returns:
+        pd.core.groupby.generic.DataFrameGroupBy: Grouped DataFrame object.
+
+    Raises:
+        KeyError: If 'permno' not found as column or index level.
+    """
     lvl = _permno_level_number(df)
     if lvl is not None:
         return df.groupby(level=lvl, group_keys=False)
@@ -51,12 +72,23 @@ def _groupby_permno(df: pd.DataFrame):
 
 def _safe_shift_by_permno(df: pd.DataFrame, cols: Sequence[str], shift: int) -> pd.DataFrame:
     """
-    Group-aware shift that works whether 'permno' is in index or columns.
-    Returns a *copy* with new lagged columns (suffix `_lag{shift}`).
-    Silently skips requested columns that are not present.
+    Create lagged columns by shifting specified columns within each 'permno' group.
+
+    Works whether 'permno' is an index level or a column, handles missing columns silently.
+
+    Args:
+        df (pd.DataFrame): Input DataFrame.
+        cols (Sequence[str]): Columns to shift.
+        shift (int): Number of periods to shift (lag).
+
+    Returns:
+        pd.DataFrame: Copy of df with additional lagged columns named '{col}_lag{shift}'.
     """
     out = df.copy()
     present = [c for c in cols if c in out.columns]
+    missing = [c for c in cols if c not in out.columns]
+    if missing:
+        print(f"[warn] _safe_shift_by_permno: some requested columns not found in df -> {missing}")
     if not present:
         return out
 
@@ -85,34 +117,40 @@ def build_model_matrix_from_df(
     core_required: Sequence[str] = ("adj_prc", "adj_mktcap", "retx"),
 ) -> pd.DataFrame:
     """
-    Build a modeling matrix to predict t+1 log returns.
+    Build a modeling matrix to predict next-day (t+1) log returns using lagged factors and actuals.
 
-    TARGET (Y)
-    Y = next-day log return = log(adj_prc_{t+1} / adj_prc_t).
+    TARGET (Y):
+        Y = next-day log return = log(adj_prc_{t+1} / adj_prc_t).
 
-    LAG POLICY
-    - Fama–French daily factors (mktrf, smb, hml, rf, umd): use t-1 (lag_factors).
-    - IBES actuals (act_value, act_measure, pdicity): use t-1 (lag_actuals).
+    LAGGING POLICY:
+        - Fama-French daily factors (mktrf, smb, hml, rf, umd) use lag_factors (t-1).
+        - IBES actuals (act_value, act_measure, pdicity) use lag_actuals (t-1).
 
     FEATURE SET
-    - adj_prc, adj_mktcap, vol, retx,
-      IBES consensus fields if available: n_analysts, n_up, n_down,
-      cons_mean, cons_median, cons_stdev, cons_high, cons_low, cons_cv, cons_range_pct.
+        - adj_prc, adj_mktcap, vol, retx,
+        IBES consensus fields if available: n_analysts, n_up, n_down,
+        cons_mean, cons_median, cons_stdev, cons_high, cons_low, cons_cv, cons_range_pct.
 
     Added (lagged):
-    - mktrf_lag{lag_factors}, smb_lag{lag_factors}, hml_lag{lag_factors},
-      rf_lag{lag_factors}, umd_lag{lag_factors},
-      act_value_lag{lag_actuals}, act_measure_lag{lag_actuals}, pdicity_lag{lag_actuals}.
+        - mktrf_lag{lag_factors}, smb_lag{lag_factors}, hml_lag{lag_factors},
+        rf_lag{lag_factors}, umd_lag{lag_factors},
+        act_value_lag{lag_actuals}, act_measure_lag{lag_actuals}, pdicity_lag{lag_actuals}.
 
     Missing-data policy:
     - If dropna=True, only enforce non-null on ['Y'] + core_required (default:
       'adj_prc','adj_mktcap','retx'). Optional features are allowed to be NA.
     - If dropna=False, return all rows (impute later).
 
-    Returns
-    -------
-    DataFrame with MultiIndex (permno, date) if present on input.
-    Columns order: ['ticker' (if present), 'Y', <features...>].
+    Args:
+        df_prices (pd.DataFrame): Price and factor data; multi-indexed by permno and date ideally.
+        lag_factors (int): Lag for factor variables.
+        lag_actuals (int): Lag for actual EPS variables.
+        dropna (bool): Whether to drop rows missing target or core features.
+        core_required (Sequence[str]): Core columns that must be non-null if dropna=True.
+
+    Returns:
+        DataFrame with MultiIndex (permno, date) if present on input.
+        Columns order: ['ticker' (if present), 'Y', <features...>].
     """
     out = df_prices.copy()
 
@@ -215,22 +253,17 @@ def null_report(df: pd.DataFrame, sort: bool = True) -> pd.DataFrame:
 
 def fillna_by_permno(df: pd.DataFrame, strategy: str = "median") -> pd.DataFrame:
     """
-     Fill missing values within each permno group.
-     Steps:
-       1. Forward fill
-       2. Backward fill
-       3. If still null, replace with fallback (zero or column mean)
+    Fill missing values within each group identified by 'permno' using forward-fill, backward-fill,
+    and a final fallback strategy ('zero', 'mean', or 'median') for any remaining missing values.
 
-     Parameters
-    "
-     df : DataFrame
-     strategy : {"zero", "mean", "median"}
-         How to handle values still missing after ffill+bfill.
+    Parameters:
+        df (pd.DataFrame): DataFrame containing 'permno' either as index or column.
+        strategy (str): {"zero", "mean", "median"} Which final fill strategy to use for remaining missing values.
 
-     Returns
-     -------
-     DataFrame with nulls filled.
+    Returns:
+        pd.DataFrame: DataFrame with missing values imputed.
     """
+ 
     out = df.copy()
     if "permno" in (df.index.names or []):
         out = out.groupby(level="permno").apply(lambda g: g.ffill().bfill())
@@ -253,7 +286,16 @@ def fillna_by_permno(df: pd.DataFrame, strategy: str = "median") -> pd.DataFrame
 
 
 def _get_date_index(df: pd.DataFrame, date_name: str = "date") -> pd.DatetimeIndex:
-    """Return a sorted DatetimeIndex of all trading dates present in df."""
+    """
+    Retrieve a sorted DatetimeIndex of unique dates from the DataFrame.
+
+    Parameters:
+        df (pd.DataFrame): Input DataFrame.
+        date_name (str): Name of the date column or index level.
+
+    Returns:
+        pd.DatetimeIndex: Sorted unique dates.
+    """
     if date_name in (df.index.names or []):
         di = pd.DatetimeIndex(df.index.get_level_values(date_name))
     else:
@@ -270,6 +312,22 @@ def reindex_each_permno_to_global_calendar(
     only_columns: Sequence[str] | None = None,
     calendar: Optional[pd.Index] = None,
 ) -> pd.DataFrame:
+    """
+    Reindex the DataFrame so that each 'permno' has rows for all dates in a global calendar,
+    optionally forward/backward filling missing data and applying a final numeric fill.
+
+    Parameters:
+        df (pd.DataFrame): DataFrame to reindex.
+        date_name (str): Column or index name for dates.
+        id_name (str): Column or index name for entity id ('permno').
+        fill (str): Fill method for missing data ('none', 'ffill', 'bfill', 'both').
+        final_strategy (str): Strategy for final missing values ('none', 'zero', 'mean', 'median').
+        only_columns (list|None): Columns to fill; if None, fill all except id and date.
+        calendar (pd.Index|None): Calendar of dates to use; default extracts union of dates.
+
+    Returns:
+        pd.DataFrame: Reindexed and filled DataFrame.
+    """
     work = df.copy()
 
     # Normalize index -> columns to avoid ambiguity
@@ -330,6 +388,20 @@ def build_model_matrix_from_wrds(
     chunk_size: int,
     use_run: str,
 ) -> pd.DataFrame:
+    """
+    Perform a full WRDS extraction with configured SQL scripts, load data, apply preprocessing,
+    joins and quality checks, add technical indicators, and build the final modeling matrix.
+
+    Parameters:
+        wrds_user (str): WRDS username.
+        start (str): Extraction start date.
+        end (str): Extraction end date.
+        chunk_size (int): Chunk size for extraction.
+        use_run (str): Run folder usage ('new', 'last', or explicit).
+
+    Returns:
+        pd.DataFrame: Final model matrix ready for predictive modeling.
+    """
     res = wrds_extract_raw(
         wrds_user=wrds_user,
         start=start,
@@ -402,6 +474,17 @@ def build_model_matrix_from_wrds(
 
 
 def build_matrix_from_all_stocks(all_stocks: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
+    """
+    Given a DataFrame with all stocks, filter to specified tickers, reindex to the global calendar,
+    forward and backward fill missing data, check shapes, and return the final DataFrame.
+
+    Parameters:
+        all_stocks (pd.DataFrame): Complete stocks DataFrame.
+        tickers (list[str]): List of tickers to select.
+
+    Returns:
+        pd.DataFrame: Final modeling matrix restricted to selected tickers.
+    """
     master_cal = all_stocks.index.get_level_values("date").unique().sort_values()
     print(len(master_cal))
 
