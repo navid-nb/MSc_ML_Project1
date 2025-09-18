@@ -5,14 +5,44 @@ pd.set_option("future.no_silent_downcasting", True)
 
 
 def _ema(s: pd.Series, span: int) -> pd.Series:
+    """
+    Calculate the Exponential Moving Average (EMA) of a pandas Series.
+
+    Args:
+        s (pd.Series): Input data series.
+        span (int): The span for the EMA.
+
+    Returns:
+        pd.Series: EMA-smoothed series.
+    """
     return s.ewm(span=span, adjust=False, min_periods=1).mean()
 
 
 def _sma(s: pd.Series, window: int) -> pd.Series:
+    """
+    Calculate the Simple Moving Average (SMA) of a pandas Series.
+
+    Args:
+        s (pd.Series): Input data series.
+        window (int): Window size for moving average.
+
+    Returns:
+        pd.Series: SMA-smoothed series.
+    """
     return s.rolling(window=window, min_periods=1).mean()
 
 
 def _safe_div(a: pd.Series, b: pd.Series) -> pd.Series:
+    """
+    Element-wise division of two Series, safely handling divide-by-zero and invalid operations.
+
+    Args:
+        a (pd.Series): Numerator series.
+        b (pd.Series): Denominator series.
+
+    Returns:
+        pd.Series: Resulting series with infinities replaced by NaN.
+    """
     with np.errstate(divide="ignore", invalid="ignore"):
         out = a / b
         out = out.replace([np.inf, -np.inf], np.nan)
@@ -20,7 +50,15 @@ def _safe_div(a: pd.Series, b: pd.Series) -> pd.Series:
 
 
 def _permno_level_number(df: pd.DataFrame) -> int | None:
-    """Return the first index level number named 'permno', or None if absent."""
+    """
+    Return index level number for 'permno' from a DataFrame's MultiIndex, or None if not found.
+
+    Args:
+        df (pd.DataFrame): Input DataFrame.
+
+    Returns:
+        int | None: Index position of 'permno' level.
+    """
     if isinstance(df.index, pd.MultiIndex):
         names = list(df.index.names)
         matches = [i for i, n in enumerate(names) if n == "permno"]
@@ -33,8 +71,13 @@ def _permno_level_number(df: pd.DataFrame) -> int | None:
 
 def _groupby_permno(df: pd.DataFrame):
     """
-    Group by permno whether it's a column or an index level.
-    If multiple index levels are named 'permno', use the first occurrence.
+    Produce a GroupBy object grouped by 'permno', which can be an index level or a column.
+
+    Args:
+        df (pd.DataFrame): Input DataFrame.
+
+    Returns:
+        GroupBy object grouped on 'permno'.
     """
     lvl = _permno_level_number(df)
     if lvl is not None:
@@ -52,6 +95,17 @@ def _coerce_ohlcv_numeric(
     close_col: str,
     vol_col: str,
 ) -> pd.DataFrame:
+    """
+    Convert OHLCV columns in a group DataFrame to numeric types, coercing errors to NaN,
+    and replacing any infinities with NaN.
+
+    Args:
+        g (pd.DataFrame): Group DataFrame.
+        open_col, high_col, low_col, close_col, vol_col (str): Column names for OHLCV.
+
+    Returns:
+        pd.DataFrame: Group DataFrame with coerced numeric columns.
+    """
     gg = g.copy()
     for c in (open_col, high_col, low_col, close_col, vol_col):
         if c in gg.columns:
@@ -84,7 +138,14 @@ def add_technical_indicators(
     chvol_delta: int = 10,
 ) -> pd.DataFrame:
     """
-    Compute indicators per PERMNO using pandas/numpy and append them.
+    Compute a variety of technical indicators per permno, based on OHLCV data, and append results to the DataFrame.
+
+    Args:
+        df (pd.DataFrame): Input stock price data.
+        (Several parameters controlling indicator lengths and smoothing.)
+
+    Returns:
+        pd.DataFrame: DataFrame with appended technical indicator columns prefixed by 'prefix'.
     """
     required = [open_col, high_col, low_col, close_col, vol_col]
     missing = [c for c in required if c not in df.columns]
