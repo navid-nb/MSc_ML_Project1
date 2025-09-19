@@ -217,21 +217,6 @@ def assert_no_new_rows(
         )
 
 
-def _fill_prev_positive(series: pd.Series) -> pd.Series:
-    """
-    Replace non-positive values in the series with NaN, then forward-fill and back-fill
-    to the nearest positive value on both sides.
-
-    Args:
-        series (pd.Series): Numeric series to clean.
-
-    Returns:
-        pd.Series: Series with non-positive values replaced by nearest positive values.
-    """
-    s = series.where(series > 0)  # keep > 0; null others
-    return s.ffill().bfill()
-
-
 def _to_columns(df: pd.DataFrame, names: List[str]) -> Tuple[pd.DataFrame, List[str]]:
     """
     Ensure that specified names exist as regular columns in the DataFrame,
@@ -283,13 +268,14 @@ def _restore_index_if_needed(
 
 def pre_qa_dsf(dsf: pd.DataFrame) -> None:
     """
-    Preliminary quality assurance checks on the Daily Stock File (DSF).
+    Perform preliminary quality assurance checks on the Daily Stock File (DSF) DataFrame.
 
-    Checks:
-    - 'date' is a datetime field (column or index).
-    - Warns if adjustment factors (cfacpr, cfacshr) are non-positive.
-    - Warns on negative price values.
-    - Validates uniqueness on (permno, date).
+    This function validates key aspects of the DSF data before analysis, including:
+    - Ensuring the 'date' field exists and is of datetime type, either as a column or index.
+    - Warning if adjustment factors ('cfacpr', 'cfacshr') contain zero values.
+    - Raising an error if adjustment factors ('cfacpr', 'cfacshr') have negative values.
+    - Warning if there are any negative prices in the 'prc' column.
+    - Validating the uniqueness of the primary key composed of ('permno', 'date').
 
     Args:
         dsf (pd.DataFrame): Daily Stock File DataFrame.
@@ -307,30 +293,100 @@ def pre_qa_dsf(dsf: pd.DataFrame) -> None:
     else:
         raise KeyError("dsf: 'date' not found as column or index.")
 
-    if (dsf["cfacpr"] <= 0).any():
-        print("[warn] dsf: some cfacpr <= 0 (unexpected).")
-    if (dsf["cfacshr"] <= 0).any():
-        print("[warn] dsf: some cfacshr <= 0 (unexpected).")
+    if (dsf["cfacpr"] < 0).any():
+        raise ValueError("dsf: cfacpr < 0 (unexpected).")
+    if (dsf["cfacshr"] < 0).any():
+        raise ValueError("dsf: cfacshr < 0 (unexpected).")
+    
+    if (dsf["cfacpr"] == 0).any():
+         print(f"[warn] dsf: some rows have zero cfacpr.")
+    if (dsf["cfacshr"] == 0).any():
+        print(f"[warn] dsf: some rows have zero cfacshr.")
+
 
     n_neg = int((dsf["prc"] < 0).sum())
     if n_neg:
         pct = round(n_neg / max(len(dsf), 1) * 100, 2)
-        print(f"[info] dsf: {n_neg:,} rows have negative prices ({pct}%).")
+        print(f"[warn] dsf: {n_neg:,} rows have negative prices ({pct}%).")
 
     check_key_dupes(dsf, ["permno", "date"], "dsf")
 
 
-def impute_negative_crsp_factors_and_price(dsf: pd.DataFrame) -> pd.DataFrame:
+def _handle_zero_cfa_factors(df: pd.DataFrame, grouper) -> (pd.DataFrame):
     """
-    For each permno, replace non-positive values in adjustment factors (cfacpr, cfacshr)
-    and price (prc) with the nearest previous positive value (fallback via backfill).
-    Recompute adjusted price, shares outstanding, and market cap.
+    Remove all rows where groups (by 'permno') contain any zero values 
+    in 'cfacpr' or 'cfacshr' columns.
 
-    Args:
-        dsf (pd.DataFrame): Daily Stock File DataFrame.
+    Parameters:
+        df (pd.DataFrame): Input DataFrame containing financial data.
+        grouper: GroupBy object grouping df by 'permno'.
 
     Returns:
-        pd.DataFrame: Copy of dsf with imputed positive adjustment factors and adjusted columns.
+        filtered_df (pd.DataFrame): DataFrame with groups containing zeros removed.
+        removed_permnos (list): List of 'permno' values that were removed.
+
+    Side Effects:
+        Prints a message listing the 'permno' values removed.
+    """
+
+    # Find permnos where any row has zero in cfacpr or cfacshr
+    removed_permnos = [
+        permno for permno, group in grouper
+        if (group["cfacpr"] == 0).any() or (group["cfacshr"] == 0).any()
+    ]
+    print(f"[info] Removed {len(removed_permnos)} permnos(companies) for having zero in cfacpr or cfacshr:")
+
+    # Filter out rows with those permnos
+    filtered_df = df[~df.index.get_level_values('permno').isin(removed_permnos)]
+    return filtered_df
+
+def _handle_negative_price(df: pd.DataFrame, grouper, max_neg_price_pct: float) -> (pd.DataFrame, list):
+    """
+    Remove groups where the proportion of rows with negative price exceeds max_neg_price_pct.
+
+    Parameters:
+        df (pd.DataFrame): DataFrame containing stock data.
+        grouper: GroupBy object grouping df by 'permno'.
+        max_neg_price_pct (float): Maximum allowed fraction (0 to 1) of negative prices per permno.
+
+    Returns:
+        filtered_df (pd.DataFrame): DataFrame after removing groups.
+        removed_permnos (list): List of permnos removed.
+        
+    Side Effects:
+        Prints [info] with the permnos removed.
+    """
+    removed_permnos = []
+    for permno, group in grouper:
+        neg_count = (group["prc"] < 0).sum()
+        group_len = len(group)
+        if neg_count > max_neg_price_pct * group_len:
+            removed_permnos.append(permno)
+    print(f"[info] Removed {len(removed_permnos)} permnos(companies) for exceeding the threshold of negative prices:")
+    filtered_df = df[~df.index.get_level_values('permno').isin(removed_permnos)]
+    filtered_df["prc"] = filtered_df["prc"].abs()
+
+    return filtered_df
+
+def clean_dsf(dsf: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clean and adjust the Daily Stock File DataFrame for financial analysis.
+
+    The function performs the following steps grouped by 'permno':
+    - Removes all groups containing zero values in 'cfacpr' or 'cfacshr'.
+    - Removes groups where the percentage of negative prices exceeds a threshold (1%).
+    - Converts all remaining prices to their absolute values.
+    - Recomputes adjusted price, adjusted shares outstanding, and market capitalization.
+
+    Args:
+        dsf (pd.DataFrame): Daily Stock File DataFrame with columns including 'permno',
+            'cfacpr', 'cfacshr', 'prc', and optionally 'shrout'.
+
+    Returns:
+        pd.DataFrame: A cleaned and adjusted copy of the input DataFrame ready for further analysis.
+
+    Side Effects:
+        Prints [info] messages listing permnos removed during cleaning steps.
     """
     # Work with a sorted view, regardless of index vs columns
     idx_names = list(dsf.index.names or [])
@@ -347,12 +403,9 @@ def impute_negative_crsp_factors_and_price(dsf: pd.DataFrame) -> pd.DataFrame:
         out = out.sort_values(["permno", "date"])
         grouper = out.groupby("permno", group_keys=False)
 
-    def _fix_group(g: pd.DataFrame) -> pd.DataFrame:
-        for col in ("cfacpr", "cfacshr", "prc"):
-            g[col] = _fill_prev_positive(g[col])
-        return g
-
-    out = grouper.apply(_fix_group)
+    # Find permnos where any row has zero in cfacpr or cfacshr columns
+    out = _handle_zero_cfa_factors(out, grouper)
+    out = _handle_negative_price(out, grouper, max_neg_price_pct=0.01)
 
     # Recompute adjusted fields
     out["adj_prc"] = out["prc"] * out["cfacpr"]

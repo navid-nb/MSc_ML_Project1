@@ -5,7 +5,7 @@ import pandas as pd
 
 from src.helpers.data_cleanup import (
     ensure_index,
-    impute_negative_crsp_factors_and_price,
+    clean_dsf,
     join_dsf_with_stocknames,
     join_prices_with_ff,
     join_prices_with_ibes,
@@ -429,8 +429,8 @@ def build_model_matrix_from_wrds(
     # Index & QA
     dsf = ensure_index(dsf, ["permno", "date"], keep_cols=False)
     pre_qa_dsf(dsf)
+    dsf = clean_dsf(dsf)
     pre_qa_stocknames(stock_names)
-    dsf = impute_negative_crsp_factors_and_price(dsf)
 
     # Prices + names
     df_prices = join_dsf_with_stocknames(dsf, stock_names)
