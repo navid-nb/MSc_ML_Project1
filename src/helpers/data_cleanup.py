@@ -586,7 +586,7 @@ def post_stockname_join_qa_cleaning(df: pd.DataFrame,  remove_unclean_permnos: b
                 df = df.loc[mask].copy()
                 print(f"[info] Removed {len(unclean_permnos)} permnos with null ticker rows: {unclean_permnos}")
                 new_null_ticker_rate = float(df["ticker"].isna().mean())
-                print(f"[info] df_prices:after cleaning there are {new_null_ticker_rate:.2%} rows lack ticker mapping on that date.")
+                print(f"[info] df_prices:after cleaning, {new_null_ticker_rate:.2%} rows lack ticker mapping on that date.")
 
     if "adj_prc" in df.columns:
         near_zero = int((df["adj_prc"].abs() <= 1e-8).sum())

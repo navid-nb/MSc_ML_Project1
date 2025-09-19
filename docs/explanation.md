@@ -32,7 +32,7 @@ This section explains the key data cleaning, transformation, and feature enginee
 
 ---
 
-## 3. DSF Cleaning
+## 3. DSF Quality Checks & Cleaning
 
 - **Remove stocks where adjustment factors contain zeros.**  
     Adjustment factors like `cfacpr` and `cfacshr` should be strictly positive; zeros indicate bad or incomplete data which should be excluded.
@@ -42,19 +42,35 @@ This section explains the key data cleaning, transformation, and feature enginee
 
 
 - **Convert remaining price values to absolute values**  
-  After cleaning, prices are converted to absolute values so that all price data is consistent and positive for further analysis.
+  After removing the stocks with poor data quality, the remaning prices are converted to their absolute values so that all price data is consistent and positive for further analysis.
 
 - **Recalculate adjusted prices, shares, and market caps** using cleaned data.
 
 
-*Purpose:* Ensure financial data is clean, consistent, and correctly adjusted for splits/dividends.
+*Purpose:* Ensure dsf data is clean, consistent, and correctly adjusted for splits/dividends.
 
 ---
 
-## 4. Stock Names Quality Checks
-
+## 4. Merging Stock Names 
+4.1- pre join quality checks 
 - Verify date types and check for overlapping validity windows in stock naming history.
-- Overlaps may cause ambiguous ticker mappings and are flagged.
+- Warns if overlapping name windows exist for the same permno.
+
+4.2- join stocknames to dsf
+
+- Performs a left "as-of" join between daily stock prices (`dsf`) and stock names (`stock_names`) on the permanent security identifier `permno`.
+- Each daily row is matched with the ticker and name valid on that date, by filtering based on the validity interval `[namedt, nameenddt_eff]`.
+- Handles securities with multiple name intervals by keeping only the ticker/name valid at each trading date.
+- Results in an enriched DataFrame `df_prices` with daily stock data including corresponding ticker and name information.
+
+
+4.3 post join qualitycheck and cleaning
+
+- Validates uniqueness on `(permno, date)` key to ensure no duplicates exist after merging.
+- Reports the percentage of rows missing ticker data, highlighting potential coverage gaps in name history.
+- Warns about unexpected data patterns such as near-zero adjusted prices or negative market capitalization.
+- When the parameter `remove_unclean_permnos=True` is set, all records corresponding to `permno`s that have any missing ticker rows are removed.
+- This cleaning helps exclude securities with incomplete or questionable name data, ensuring downstream analysis uses reliable data.
 
 *Purpose:* Ensures consistent stock identifier mapping during joins.
 
