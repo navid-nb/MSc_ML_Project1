@@ -11,7 +11,7 @@ from src.helpers.data_cleanup import (
     join_prices_with_ibes,
     join_prices_with_ibes_actu,
     parquet_to_df,
-    post_join_qa_prices,
+    post_stockname_join_qa_cleaning,
     post_join_qa_prices_with_ff,
     post_join_qa_prices_with_ibes,
     post_join_qa_prices_with_ibes_actu,
@@ -435,7 +435,7 @@ def build_model_matrix_from_wrds(
     # Prices + names
     df_prices = join_dsf_with_stocknames(dsf, stock_names)
     df_prices = ensure_index(df_prices, ["permno", "date"], keep_cols=False)
-    post_join_qa_prices(df_prices)
+    df_prices = post_stockname_join_qa_cleaning(df_prices, remove_unclean_permnos=True)
 
     # FF
     pre_qa_ff(ff)

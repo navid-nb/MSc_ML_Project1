@@ -554,18 +554,23 @@ def join_dsf_with_stocknames(dsf: pd.DataFrame, stock_names: pd.DataFrame) -> pd
     return _restore_index_if_needed(merged, orig_idx)
 
 
-def post_join_qa_prices(df: pd.DataFrame) -> None:
+def post_stockname_join_qa_cleaning(df: pd.DataFrame,  remove_unclean_permnos: bool = True) -> None:
     """
-    Basic quality checks after joining DSF with stock names.
+    Basic quality checks after joining DSF with stock names and Optionally removes unclean permnos.
 
     Checks:
     - Uniqueness on (permno, date).
     - Reports fraction of rows missing ticker mapping.
     - Warns on near-zero adjusted prices.
     - Warns on negative market capitalizations.
+    - Optionally removes rows with permnos that have any null ticker values.
 
     Args:
         df (pd.DataFrame): DataFrame after DSF-stocknames join.
+        remove_unclean_permnos (bool): If True, remove all rows with permnos having any null ticker row.
+
+    Returns:
+        pd.DataFrame: Possibly cleaned dataframe.
     """
     check_key_dupes(df, ["permno", "date"], "df_prices")
 
@@ -575,6 +580,13 @@ def post_join_qa_prices(df: pd.DataFrame) -> None:
             print(
                 f"[info] df_prices: {null_ticker_rate:.2%} rows lack ticker mapping on that date."
             )
+            if remove_unclean_permnos:
+                unclean_permnos = df.loc[df["ticker"].isna()].index.get_level_values("permno").unique()
+                mask = ~df.index.get_level_values("permno").isin(unclean_permnos)
+                df = df.loc[mask].copy()
+                print(f"[info] Removed {len(unclean_permnos)} permnos with null ticker rows: {unclean_permnos}")
+                new_null_ticker_rate = float(df["ticker"].isna().mean())
+                print(f"[info] df_prices:after cleaning there are {new_null_ticker_rate:.2%} rows lack ticker mapping on that date.")
 
     if "adj_prc" in df.columns:
         near_zero = int((df["adj_prc"].abs() <= 1e-8).sum())
@@ -585,6 +597,8 @@ def post_join_qa_prices(df: pd.DataFrame) -> None:
         neg_cap = int((df["adj_mktcap"] < 0).sum())
         if neg_cap:
             print(f"[warn] df_prices: {neg_cap:,} rows with negative market cap.")
+    return df
+
 
 
 def pre_qa_ff(ff: pd.DataFrame) -> None:
