@@ -334,10 +334,10 @@ def _handle_zero_cfa_factors(df: pd.DataFrame, grouper) -> (pd.DataFrame):
         permno for permno, group in grouper
         if (group["cfacpr"] == 0).any() or (group["cfacshr"] == 0).any()
     ]
-    print(f"[info] Removed {len(removed_permnos)} permnos(companies) for having zero in cfacpr or cfacshr:")
+    print(f"[info] Removed {len(removed_permnos)} permnos(companies) for having zero in cfacpr or cfacshr")
 
     # Filter out rows with those permnos
-    filtered_df = df[~df.index.get_level_values('permno').isin(removed_permnos)]
+    filtered_df = df[~df.index.get_level_values('permno').isin(removed_permnos)].copy()
     return filtered_df
 
 def _handle_negative_price(df: pd.DataFrame, grouper, max_neg_price_pct: float) -> (pd.DataFrame, list):
@@ -362,9 +362,9 @@ def _handle_negative_price(df: pd.DataFrame, grouper, max_neg_price_pct: float) 
         group_len = len(group)
         if neg_count > max_neg_price_pct * group_len:
             removed_permnos.append(permno)
-    print(f"[info] Removed {len(removed_permnos)} permnos(companies) for exceeding the threshold of negative prices:")
-    filtered_df = df[~df.index.get_level_values('permno').isin(removed_permnos)]
-    filtered_df["prc"] = filtered_df["prc"].abs()
+    print(f"[info] Removed {len(removed_permnos)} permnos(companies) for exceeding the threshold of negative prices")
+    filtered_df = df[~df.index.get_level_values('permno').isin(removed_permnos)].copy()
+    filtered_df.loc[:, "prc"] = filtered_df["prc"].abs()
 
     return filtered_df
 
