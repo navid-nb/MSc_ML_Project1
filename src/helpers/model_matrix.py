@@ -2,7 +2,6 @@ from typing import Literal, Optional, Sequence
 
 import numpy as np
 import pandas as pd
-import time
 
 from src.helpers.data_cleanup import (
     ensure_index,
@@ -254,56 +253,51 @@ def null_report(df: pd.DataFrame, sort: bool = True) -> pd.DataFrame:
     return report
 
 
-def fillna_by_permno(df: pd.DataFrame, strategy: str = "median") -> pd.DataFrame:
-    """
-    Fill missing values within each group identified by 'permno' using forward-fill, backward-fill,
-    and a final fallback strategy ('zero', 'mean', or 'median') for any remaining missing values.
-
-    Parameters:
-        df (pd.DataFrame): DataFrame containing 'permno' either as index or column.
-        strategy (str): {"zero", "mean", "median"} Which final fill strategy to use for remaining missing values.
-
-    Returns:
-        pd.DataFrame: DataFrame with missing values imputed.
-    """
- 
-    out = df.copy()
-    if "permno" in (df.index.names or []):
-        out = out.groupby(level="permno").apply(lambda g: g.ffill().bfill())
-    elif "permno" in df.columns:
-        out = out.groupby("permno").apply(lambda g: g.ffill().bfill()).reset_index(drop=True)
-    else:
-        raise KeyError("fillna_by_permno: no 'permno' found in index or columns")
-
-    # Final fallback for columns still containing NaN
-    if strategy == "zero":
-        out = out.fillna(0)
-    elif strategy == "mean":
-        out = out.fillna(out.mean(numeric_only=True))
-    elif strategy == "median":
-        out = out.fillna(out.median(numeric_only=True))
-    else:
-        raise ValueError("Unknown strategy")
-
-    return out
-
-
 
 def forward_fill_and_remove_initial_nans(df: pd.DataFrame, add_fill_source_columns: bool = False) -> pd.DataFrame:
-    start = time.time()
-    print("Checking index levels...")
+    """
+    Forward fills missing values within groups defined by 'permno' in a MultiIndex DataFrame,
+    replaces columns that are entirely NaN within each group with dummy values before filling,
+    and drops leading rows with NaNs after filling.
+
+    The input DataFrame must have a MultiIndex with levels 'permno' and 'date'.
+    Optionally, columns indicating the source date of the fill can be added.
+
+    Steps performed:
+    - Validates that 'permno' and 'date' exist as index levels.
+    - Optionally adds columns showing the date from which forward fill values originate.
+    - For each 'permno' group:
+      - Replaces columns that contain only NaN values within that group with dummy values 
+        (-9999 for numeric columns, 'missing' for non-numeric columns) instead of dropping them,
+        to maintain consistent column structure across groups.
+      - Applies forward fill to propagate last valid observation forward.
+    - Removes leading rows in each group that still contain NaNs after forward filling.
+    - Reports statistics on how many rows were removed due to leading NaNs.
+    - Issues warnings if any NaNs remain after processing.
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        Input DataFrame with MultiIndex levels including 'permno' and 'date'. Data to be forward filled.
+    add_fill_source_columns : bool, default False
+        If True, adds additional columns indicating source dates of forward fill for each originally NaN value.
+
+    Returns:
+    --------
+    pd.DataFrame
+        Forward filled DataFrame with dummy-filled columns replacing all-NaN columns per group and leading NaN rows dropped.
+    """
     required_levels = {'permno', 'date'}
     if not required_levels.issubset(set(df.index.names)):
         missing = required_levels - set(df.index.names)
         raise ValueError(f"Input DataFrame must have MultiIndex levels named {required_levels}. Missing: {missing}")
 
-    print(f"Checked index. Elapsed: {time.time() - start:.2f}s")
 
     out = df.copy()
     dates = out.index.get_level_values('date')
 
+
     if add_fill_source_columns:
-        print("Adding fill source columns...")
         cols_with_nans = df.columns[df.isna().any()].tolist()
         suffix = '_ffill_source_date'
         for col in cols_with_nans:
@@ -311,18 +305,20 @@ def forward_fill_and_remove_initial_nans(df: pd.DataFrame, add_fill_source_colum
                 np.where(df[col].notna(), dates, pd.NaT),
                 index=df.index
             )
-        print(f"Added fill source columns. Elapsed: {time.time() - start:.2f}s")
 
-    print("Starting groupby forward fill...")
-    out = out.groupby(level='permno').apply(lambda g: g.ffill())
+
+    # messy trick: Replace all-NaN columns(empty columns) per group with -9999 (numeric) or 'missing' (non-numeric), then forward fill
+    # if we don't do this before ffill, they will remain empty and cuse issues later
+    # if we drop these columns, since for some groups they are not empty there will be inconsistency in the data since we're looking at the data for all companies as one big data frame
+    out = out.groupby(level='permno').apply(
+        lambda g: g.assign(**{col: (-9999 if pd.api.types.is_numeric_dtype(g[col]) else 'missing') for col in g.columns[g.isna().all()]}).ffill())
+
+
     out.index = out.index.droplevel(0)
-    print(f"Forward fill applied. Elapsed: {time.time() - start:.2f}s")
 
-    print("Removing leading NaNs per group...")
     mask = ~out.isna().any(axis=1)
     group_cumsum = mask.groupby(out.index.get_level_values('permno')).cumsum()
     out = out[group_cumsum > 0]
-    print(f"Leading NaNs removed. Elapsed: {time.time() - start:.2f}s")
 
     total_rows = len(df)
     removed_pct = (total_rows - len(out)) / total_rows * 100 if total_rows else 0
@@ -333,7 +329,6 @@ def forward_fill_and_remove_initial_nans(df: pd.DataFrame, add_fill_source_colum
     else:
         print("INFO: No NaN values remain after forward fill and dropping leading NaNs.")
 
-    print(f"Function complete. Total elapsed: {time.time() - start:.2f}s")
     return out
 
 

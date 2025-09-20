@@ -798,7 +798,6 @@ def prepare_ibes_for_daily_merge(ibes: pd.DataFrame) -> pd.DataFrame:
         "cons_stdev",
         "cons_high",
         "cons_low",
-        "fpe_date",
         "cons_cv",
         "cons_range_pct",
     ]
@@ -879,7 +878,7 @@ def post_join_qa_prices_with_ibes(df: pd.DataFrame) -> None:
         check_key_dupes(df, ["permno", "date"], "df_prices(+ibes)")
 
     # Coverage sanity
-    for col in ["n_analysts", "cons_mean", "cons_stdev", "cons_cv", "fpe_date"]:
+    for col in ["n_analysts", "cons_mean", "cons_stdev", "cons_cv"]:
         if col in df.columns:
             miss = float(df[col].isna().mean())
             if miss > 0:
@@ -1061,6 +1060,12 @@ def get_top_n_market_cap_companies(username: str, n: int):
     --------
     pd.DataFrame
         DataFrame containing top N companies with their permno, ticker, company name, and market capitalization.
+        
+    Remark:
+    --------
+    Due to possible ties in market capitalization values at the cutoff rank, 
+    the function may return more than N companies if multiple companies share 
+    the same market capitalization as the Nth ranked company.
     """
     conn = wrds.Connection(wrds_username=username)
 
