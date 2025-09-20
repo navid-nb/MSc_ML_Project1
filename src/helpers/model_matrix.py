@@ -285,6 +285,58 @@ def fillna_by_permno(df: pd.DataFrame, strategy: str = "median") -> pd.DataFrame
     return out
 
 
+import time
+
+def forward_fill_and_remove_initial_nans(df: pd.DataFrame, add_fill_source_columns: bool = False) -> pd.DataFrame:
+    start = time.time()
+    print("Checking index levels...")
+    required_levels = {'permno', 'date'}
+    if not required_levels.issubset(set(df.index.names)):
+        missing = required_levels - set(df.index.names)
+        raise ValueError(f"Input DataFrame must have MultiIndex levels named {required_levels}. Missing: {missing}")
+
+    print(f"Checked index. Elapsed: {time.time() - start:.2f}s")
+
+    out = df.copy()
+    dates = out.index.get_level_values('date')
+
+    if add_fill_source_columns:
+        print("Adding fill source columns...")
+        cols_with_nans = df.columns[df.isna().any()].tolist()
+        suffix = '_ffill_source_date'
+        for col in cols_with_nans:
+            out[col + suffix] = pd.Series(
+                np.where(df[col].notna(), dates, pd.NaT),
+                index=df.index
+            )
+        print(f"Added fill source columns. Elapsed: {time.time() - start:.2f}s")
+
+    print("Starting groupby forward fill...")
+    out = out.groupby(level='permno').apply(lambda g: g.ffill())
+    out.index = out.index.droplevel(0)
+    print(f"Forward fill applied. Elapsed: {time.time() - start:.2f}s")
+
+    print("Removing leading NaNs per group...")
+    mask = ~out.isna().any(axis=1)
+    group_cumsum = mask.groupby(out.index.get_level_values('permno')).cumsum()
+    out = out[group_cumsum > 0]
+    print(f"Leading NaNs removed. Elapsed: {time.time() - start:.2f}s")
+
+    total_rows = len(df)
+    removed_pct = (total_rows - len(out)) / total_rows * 100 if total_rows else 0
+    print(f"Average percentage of rows removed per group due to leading NaNs after forward fill: {removed_pct:.2f}%")
+
+    if out.isna().any().any():
+        print("WARNING: NaN values remain after forward fill and dropping leading NaNs.")
+    else:
+        print("INFO: No NaN values remain after forward fill and dropping leading NaNs.")
+
+    print(f"Function complete. Total elapsed: {time.time() - start:.2f}s")
+    return out
+
+
+
+
 def _get_date_index(df: pd.DataFrame, date_name: str = "date") -> pd.DatetimeIndex:
     """
     Retrieve a sorted DatetimeIndex of unique dates from the DataFrame.
@@ -430,19 +482,19 @@ def build_model_matrix_from_wrds(
     dsf = ensure_index(dsf, ["permno", "date"], keep_cols=False)
     pre_qa_dsf(dsf)
     dsf = clean_dsf(dsf)
-    pre_qa_stocknames(stock_names)
 
-    # Prices + names
+    # adding stock_names
+    pre_qa_stocknames(stock_names)
     df_prices = join_dsf_with_stocknames(dsf, stock_names)
     df_prices = ensure_index(df_prices, ["permno", "date"], keep_cols=False)
     df_prices = post_stockname_join_qa_cleaning(df_prices, remove_unclean_permnos=True)
 
-    # FF
+    # adding FF
     pre_qa_ff(ff)
     df_prices = join_prices_with_ff(df_prices, ff)
     post_join_qa_prices_with_ff(df_prices)
 
-    # IBES statsumu (EPS)
+    # adding IBES statsumu (EPS)
     pre_qa_ibes_statsumu(ibes)
     ibes_daily = prepare_ibes_for_daily_merge(ibes)
     df_prices = join_prices_with_ibes(df_prices, ibes_daily)
@@ -455,7 +507,9 @@ def build_model_matrix_from_wrds(
     post_join_qa_prices_with_ibes_actu(df_prices)
 
     # impute null using ffill and bfill
-    df_prices = fillna_by_permno(df_prices)
+    # df_prices.to_csv("temp_files/df_prices_before_fill.csv")
+    df_prices = forward_fill_and_remove_initial_nans(df_prices, add_fill_source_columns= False)
+    # df_prices.to_csv("temp_files/df_prices_after_fill.csv")
 
     # Technical indicators
     df_prices = add_technical_indicators(df_prices)
