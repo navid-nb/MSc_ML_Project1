@@ -2,6 +2,7 @@ from typing import Literal, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+import time
 
 from src.helpers.data_cleanup import (
     ensure_index,
@@ -22,6 +23,8 @@ from src.helpers.data_cleanup import (
     pre_qa_stocknames,
     prepare_ibes_actu_for_daily_merge,
     prepare_ibes_for_daily_merge,
+    get_top_n_market_cap_companies,
+    filter_main_df_by_top_companies,
 )
 from src.helpers.data_extraction import wrds_extract_raw
 from src.helpers.model_indicators import add_technical_indicators
@@ -285,7 +288,6 @@ def fillna_by_permno(df: pd.DataFrame, strategy: str = "median") -> pd.DataFrame
     return out
 
 
-import time
 
 def forward_fill_and_remove_initial_nans(df: pd.DataFrame, add_fill_source_columns: bool = False) -> pd.DataFrame:
     start = time.time()
@@ -438,6 +440,7 @@ def build_model_matrix_from_wrds(
     start: str,
     end: str,
     chunk_size: int,
+    n_companies_to_use: int,
     use_run: str,
 ) -> pd.DataFrame:
     """
@@ -472,11 +475,22 @@ def build_model_matrix_from_wrds(
     print(res)
 
     # Load
+    df_big_companies=get_top_n_market_cap_companies(username=wrds_user,n=n_companies_to_use)
+
     dsf = parquet_to_df(res["artifacts"], "dsf.parquet")
+    dsf=filter_main_df_by_top_companies(dsf,df_big_companies)
+
     stock_names = parquet_to_df(res["artifacts"], "stocknames.parquet")
+    stock_names=filter_main_df_by_top_companies(stock_names,df_big_companies)
+
     ff = parquet_to_df(res["artifacts"], "ff.parquet")
+    ff=filter_main_df_by_top_companies(ff,df_big_companies)
+
     ibes = parquet_to_df(res["artifacts"], "ibes_stats.parquet")
+    ibes=filter_main_df_by_top_companies(ibes,df_big_companies)
+
     ibes_act = parquet_to_df(res["artifacts"], "ibes_act.parquet")
+    ibes_act=filter_main_df_by_top_companies(ibes_act,df_big_companies)
 
     # Index & QA
     dsf = ensure_index(dsf, ["permno", "date"], keep_cols=False)

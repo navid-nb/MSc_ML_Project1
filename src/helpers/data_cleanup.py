@@ -1,6 +1,6 @@
 import os
 from typing import Dict, List, Tuple
-
+import wrds
 import numpy as np
 import pandas as pd
 
@@ -1038,3 +1038,83 @@ def post_join_qa_prices_with_ibes_actu(df: pd.DataFrame) -> None:
         vc = df["anntims"].dropna().astype(str).str.lower().value_counts().head(5)
         if not vc.empty:
             print(f"[info] ibes_act announcement time top values:\n{vc}")
+
+
+def get_top_n_market_cap_companies(username: str, n: int):
+    """
+    Retrieve the top N companies by market capitalization from the CRSP database.
+
+    Connects to WRDS using the given username, queries the CRSP daily stock file (dsf) 
+    and stock names (stocknames) to calculate market capitalization 
+    using absolute price multiplied by shares outstanding on the most recent date available.
+    
+    The output dataframe includes columns: permno, ticker, comnam, and market_cap.
+    
+    Parameters:
+    -----------
+    username : str
+        WRDS username for database connection.
+    n : int
+        Number of top companies by market capitalization to return.
+    
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame containing top N companies with their permno, ticker, company name, and market capitalization.
+    """
+    conn = wrds.Connection(wrds_username=username)
+
+    query = f"""
+    select d.permno, s.ticker, s.comnam, (abs(d.prc) * d.shrout) as market_cap
+    from crsp.dsf d
+    join crsp.stocknames s 
+      on d.permno = s.permno
+     and d.date between s.namedt and coalesce(s.nameenddt, '2999-12-31')
+    where d.date = (select max(date) from crsp.dsf)
+      and d.prc is not null
+      and d.shrout is not null
+      and d.shrout > 0
+      and d.prc <> 0
+    order by market_cap desc
+    limit {n}
+    """
+
+    df = conn.raw_sql(query)
+    conn.close()
+    return df
+
+def filter_main_df_by_top_companies(df_input: pd.DataFrame,df_companies_to_keep: pd.DataFrame) -> pd.DataFrame:
+    """
+    Filter the input dataframe to keep only rows corresponding to companies present in the given companies dataframe.
+
+    The filter checks the columns 'permno', 'ticker', and 'comnam' if these exist in both dataframes, 
+    and retains rows in df_input where any of these identifiers match those in df_companies_to_keep.
+    
+    Parameters:
+    -----------
+    df_input : pd.DataFrame
+        The main dataframe to be filtered.
+    df_companies_to_keep : pd.DataFrame
+        DataFrame of companies to keep, typically output from get_top_n_market_cap_companies.
+        
+    Returns:
+    --------
+    pd.DataFrame
+        Filtered dataframe containing only rows for companies present in df_companies_to_keep by at least one identifier.
+    """
+    # Get the top companies dataframe by calling the provided function
+    df= df_input.copy()
+    top_companies_df = df_companies_to_keep.copy()
+    
+    keys_to_check = [col for col in ['permno', 'ticker', 'comnam'] if col in df.columns and col in top_companies_df.columns]
+    
+    if keys_to_check:
+        mask = pd.Series(False, index=df.index)
+        for key in keys_to_check:
+            mask |= df[key].isin(top_companies_df[key])
+        filtered_df = df[mask]
+    else:
+        # If no relevant columns found, return original dataframe or empty dataframe as needed
+        filtered_df = df_input
+    
+    return filtered_df
