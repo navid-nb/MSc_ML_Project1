@@ -26,7 +26,7 @@ from src.helpers.data_cleanup import (
     filter_main_df_by_top_companies,
 )
 from src.helpers.data_extraction import wrds_extract_raw
-from src.helpers.model_indicators import add_technical_indicators
+from src.helpers.feature_engineering import add_technical_indicators
 
 
 def _permno_level_number(df: pd.DataFrame) -> int | None:
@@ -253,6 +253,17 @@ def null_report(df: pd.DataFrame, sort: bool = True) -> pd.DataFrame:
     return report
 
 
+def _remove_leading_nans(df: pd.DataFrame, remove_reason: str = 'no reason indicated') -> pd.DataFrame:
+    out=df.copy()
+    mask = ~out.isna().any(axis=1)
+    group_cumsum = mask.groupby(out.index.get_level_values('permno')).cumsum()
+    out = out[group_cumsum > 0]
+    total_rows = len(df)
+    removed_pct = (total_rows - len(out)) / total_rows * 100 if total_rows else 0
+    print(f"[INFO] percentage of rows removed due to leading NaNs : {removed_pct:.4f}%  remove reason: {remove_reason}")
+
+    return out
+
 
 def forward_fill_and_remove_initial_nans(df: pd.DataFrame, add_fill_source_columns: bool = False) -> pd.DataFrame:
     """
@@ -313,17 +324,10 @@ def forward_fill_and_remove_initial_nans(df: pd.DataFrame, add_fill_source_colum
     out = out.groupby(level='permno').apply(
         lambda g: g.assign(**{col: (-9999 if pd.api.types.is_numeric_dtype(g[col]) else 'missing') for col in g.columns[g.isna().all()]}).ffill())
 
-
     out.index = out.index.droplevel(0)
 
-    mask = ~out.isna().any(axis=1)
-    group_cumsum = mask.groupby(out.index.get_level_values('permno')).cumsum()
-    out = out[group_cumsum > 0]
-
-    total_rows = len(df)
-    removed_pct = (total_rows - len(out)) / total_rows * 100 if total_rows else 0
-    print(f"Average percentage of rows removed per group due to leading NaNs after forward fill: {removed_pct:.2f}%")
-
+    out=_remove_leading_nans(out,remove_reason='after forward filling empty cells')
+    
     if out.isna().any().any():
         print("WARNING: NaN values remain after forward fill and dropping leading NaNs.")
     else:
@@ -516,12 +520,13 @@ def build_model_matrix_from_wrds(
     post_join_qa_prices_with_ibes_actu(df_prices)
 
     # impute null using ffill and bfill
-    # df_prices.to_csv("temp_files/df_prices_before_fill.csv")
-    df_prices = forward_fill_and_remove_initial_nans(df_prices, add_fill_source_columns= False)
-    # df_prices.to_csv("temp_files/df_prices_after_fill.csv")
+    df_prices = forward_fill_and_remove_initial_nans(df_prices, add_fill_source_columns= True)
 
     # Technical indicators
+    df_prices.to_csv("temp_files/df_prices_before_fill.csv")
     df_prices = add_technical_indicators(df_prices)
+    df_prices=_remove_leading_nans(df_prices,remove_reason="after adding technical indictors")
+    df_prices.to_csv("temp_files/df_prices_after_fill.csv")
 
     # Final matrix
     model_df = build_model_matrix_from_df(df_prices)
