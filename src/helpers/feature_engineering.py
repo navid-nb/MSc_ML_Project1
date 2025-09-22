@@ -1,12 +1,10 @@
-import numpy as np
+from itertools import product
+from typing import Optional, Union
+
 import pandas as pd
 import pandas_ta as ta
-from typing import Optional, Union
-from itertools import product
-
 
 pd.set_option("future.no_silent_downcasting", True)
-
 
 
 def _join_ind_result_to_out(
@@ -43,6 +41,7 @@ def _join_ind_result_to_out(
 
     return df
 
+
 def add_technical_indicators(
     df: pd.DataFrame,
     *,
@@ -51,8 +50,8 @@ def add_technical_indicators(
     low_col: str = "bidlo",
     close_col: str = "adj_prc",
     vol_col: str = "vol",
-    permno_idx: str = 'permno',
-    date_idx: str = 'date',
+    permno_idx: str = "permno",
+    date_idx: str = "date",
     # Params
     sma_periods: list[int] = [10, 20],
     ema_periods: list[int] = [10, 20],
@@ -63,7 +62,7 @@ def add_technical_indicators(
     macd_signal_list: list[int] = [9],
     bb_periods: list[int] = [20],
     bb_stds: list[float] = [2.0],
-    mfi_periods: list[int] = [14]
+    mfi_periods: list[int] = [14],
 ) -> pd.DataFrame:
     """
     Compute a variety of technical indicators per permno, based on OHLCV data,
@@ -81,8 +80,12 @@ def add_technical_indicators(
     if missing:
         raise KeyError(f"add_technical_indicators: missing required columns: {missing}")
 
-    if not isinstance(df.index, pd.MultiIndex) or permno_idx not in df.index.names or date_idx not in df.index.names:
-        raise KeyError('DataFrame must have a MultiIndex with permno and date as levels')
+    if (
+        not isinstance(df.index, pd.MultiIndex)
+        or permno_idx not in df.index.names
+        or date_idx not in df.index.names
+    ):
+        raise KeyError("DataFrame must have a MultiIndex with permno and date as levels")
 
     # Sort by permno and date index levels
     df = df.sort_index(level=[permno_idx, date_idx])
@@ -108,12 +111,18 @@ def add_technical_indicators(
 
     # ATR
     for period in atr_periods:
-        atr_result = gb.apply(lambda g: ta.atr(high=g[high_col], low=g[low_col], close=g[close_col], length=period))
+        atr_result = gb.apply(
+            lambda g: ta.atr(high=g[high_col], low=g[low_col], close=g[close_col], length=period)
+        )
         out = _join_ind_result_to_out(out, atr_result, col_name=f"atr_{period}")
 
-    # MACD 
-    for macd_fast, macd_slow, macd_signal in product(macd_fast_list, macd_slow_list, macd_signal_list):
-        macd_result = gb.apply(lambda g: ta.macd(g[close_col], fast=macd_fast, slow=macd_slow, signal=macd_signal))
+    # MACD
+    for macd_fast, macd_slow, macd_signal in product(
+        macd_fast_list, macd_slow_list, macd_signal_list
+    ):
+        macd_result = gb.apply(
+            lambda g: ta.macd(g[close_col], fast=macd_fast, slow=macd_slow, signal=macd_signal)
+        )
         out = _join_ind_result_to_out(out, macd_result)
 
     for length, std in product(bb_periods, bb_stds):
@@ -121,11 +130,15 @@ def add_technical_indicators(
         out = _join_ind_result_to_out(out, bb_result, col_name=f"bbands_{length}_{std}")
 
     for length in mfi_periods:
-        mfi_result = gb.apply(lambda g: ta.mfi(high=g[high_col], low=g[low_col], close=g[close_col], volume=g[vol_col], length=length))
+        mfi_result = gb.apply(
+            lambda g: ta.mfi(
+                high=g[high_col],
+                low=g[low_col],
+                close=g[close_col],
+                volume=g[vol_col],
+                length=length,
+            )
+        )
         out = _join_ind_result_to_out(out, mfi_result, col_name=f"mfi_{length}")
 
-
-
-
     return out
-

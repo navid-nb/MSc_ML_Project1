@@ -90,7 +90,7 @@ def extract_artifacts(
 
 def assert_artifacts_present(outdir: str, artifacts: List[tuple[str, str]]) -> None:
     """
-    Check that all expected Parquet files exist in the output directory. 
+    Check that all expected Parquet files exist in the output directory.
     Raises AssertionError and lists any missing outputs.
 
     Args:

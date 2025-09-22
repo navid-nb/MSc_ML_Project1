@@ -78,64 +78,69 @@ This section explains the key data cleaning, transformation, and feature enginee
 
 ## 5. Joining Data
 
-- **Join DSF prices with stock names** via an as-of merge aligned on date with validity windows.
-- **Join Fama-French factors (FF)** on date to enrich stock prices with market risk factors.
-- **Join IBES consensus summary (EPS statsumu)** prepared to one row per ticker-date.
-- **Join IBES actual EPS announcements (ibes_actu)** likewise prepared and cleaned.
-
-*Purpose:* Merge all relevant financial and fundamental data into a single price-firm-date DataFrame for modeling.
+- Combine daily stock prices (`df_prices`) with stock names using an as-of join aligned by `permno` and valid date intervals.
+- Add Fama-French daily market factors (`ff`) by joining on date to provide market risk context.
+- Integrate IBES consensus summary data (`ibes_statsumu`) prepared for daily matches to enrich fundamentals.
+- Append IBES actual EPS announcements (`ibes_actu`) also prepared for daily granularity.
+  
+*Purpose:* To create a comprehensive dataset combining daily price, market risk, and fundamental data for each stock-date.
 
 ---
 
 ## 6. Post-Join Quality Assurance
 
-- After each join step, perform:
-  - Uniqueness checks to avoid duplicates inflating rows
-  - Null and coverage reporting for critical columns like tickers and price
-  - Warning on near-zero or negative adjusted prices and market caps
-
-*Purpose:* Maintain data consistency and early detection of bad merges or gaps.
+- Perform data integrity checks after each join: ensure uniqueness of indices to avoid duplicate rows.
+- Report on null values and data coverage for critical columns such as ticker symbols, prices, and market caps.
+- Warn on anomalies like near-zero or negative adjusted prices or market caps to flag poor data quality.
+  
+*Purpose:* Maintain dataset consistency and detect any issues early to prevent data leakage or model bias.
 
 ---
 
 ## 7. Missing Value Imputation
 
-- Perform **forward-fill and backward-fill grouped by permno** to impute missing numeric features for continuous modeling.
-- Use a **final fallback imputation strategy (median)** for any remaining missing values.
-
-*Purpose:* Fill temporal gaps in data while maintaining time series continuity for each stock.
+- Apply forward-fill and backward-fill imputation within each `permno` group to fill temporal gaps in numeric features.
+- Add optional columns to track source dates of forward-filled values for transparency.
+- Remove leading rows with NaNs that cannot be forward filled to maintain a clean time series.
+- Warn if any missing values remain post-imputation for further attention.
+  
+*Purpose:* Ensure continuous, gap-free time series data for each stock required by machine learning models.
 
 ---
 
 ## 8. Feature Engineering
 
-- Add **technical indicators** (e.g., moving averages, momentum) based on prices.
-- Build the **model matrix** to predict next-day returns:
-  - Target variable \(Y\) is the log return of adjusted prices shifted by one day.
-  - Create lagged factors (Fama-French) and lagged actual EPS variables.
-  - Drop raw unlagged factor columns to prevent data leakage.
-  - Select a core feature set of prices, volumes, market caps, and IBES consensus fields.
-
-*Purpose:* Prepare final feature set with necessary predictors for the modeling task, aligned temporally to prevent lookahead bias.
+- Augment the dataset by computing technical indicators such as moving averages and momentum from prices.
+- Remove rows with all NaNs after indicator addition to keep data quality high.
+- Assemble the final modeling matrix:
+  - Target variable \( Y \) is set as the next-day log return of the adjusted closing price.
+  - Lag relevant market factors (Fama-French) and fundamental actuals (IBES EPS) appropriately to avoid lookahead bias.
+  - Select core features including prices, volumes, market caps, IBES consensus variables, and lagged factors.
+  - Optionally drop rows missing essential features to keep the dataset robust.
+  
+*Purpose:* Build a temporally aligned feature matrix optimized for predictive modeling of next-day returns.
 
 ---
 
-## 9. Final Clean-Up and Return
+## 9. Final Clean-Up and Output
 
-- Controlled drop of rows missing target or core features (e.g., adjusted price, market cap, returns).
-- Reset index and print diagnostic information including missing value reports.
-
-*Purpose:* Return a clean, fully prepared DataFrame ready for machine learning models.
+- Reset the DataFrame index, typically dropping the ‘date’ level index to flatten the structure for modeling.
+- Print informative diagnostics about shape, index levels, columns, and missing data status of the final matrix.
+- Return the fully prepared modeling DataFrame ready for machine learning workflows.
+  
+*Purpose:* Provide a clean, well-structured dataset ensuring transparency and reliability for downstream tasks.
 
 ---
 
 # Explanation of Key Cleaning Actions
 
-| Action                          | Why?                                                       |
-|-------------------------------|------------------------------------------------------------|
-| Remove rows with zero adjustment factors | Zero adjustment factors indicate corrupt data; dropping ensures valid adjusted prices. |
-| Remove stocks with >1% negative prices | Negative prices are suspicious; removal prevents erroneous model training. |
-| Absolute value of prices       | After cleaning, prices should be positive; negative values are data errors or corrections. |
-| Forward/backward-fill missing data | Ensures continuous time-series for each stock without gaps. |
-| Lagging factors and actuals   | Prevents lookahead bias by aligning features correctly with target return dates. |
+| Action                            | Purpose / Reason                                                                                           |
+|----------------------------------|-----------------------------------------------------------------------------------------------------------|
+| Remove rows with zero adjustment factors | These rows produce invalid adjusted prices and distort returns calculations.                               |
+| Remove stocks with >1% negative prices   | Excessive negative prices indicate problematic data, so removing these stocks reduces noise.              |
+| Convert prices to absolute values         | Ensures all price data is positive and consistent after cleaning.                                         |
+| Forward and backward fill missing data    | Fills gaps in time series allowing continuous modeling and feature engineering.                           |
+| Lag factors and actual results             | Prevents lookahead bias by aligning predictors with correct target time frames.                           |
+
+---
 

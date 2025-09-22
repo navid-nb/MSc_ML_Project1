@@ -1,6 +1,6 @@
 import os
 from typing import Dict, List, Tuple
-import wrds
+
 import numpy as np
 import pandas as pd
 
@@ -17,7 +17,7 @@ def parquet_to_df(artifacts: Dict[str, str], name: str) -> pd.DataFrame:
 
     Returns:
         pd.DataFrame: The loaded DataFrame.
-    
+
     Raises:
         FileNotFoundError: If the artifact is missing or path does not exist.
     """
@@ -297,12 +297,11 @@ def pre_qa_dsf(dsf: pd.DataFrame) -> None:
         raise ValueError("dsf: cfacpr < 0 (unexpected).")
     if (dsf["cfacshr"] < 0).any():
         raise ValueError("dsf: cfacshr < 0 (unexpected).")
-    
-    if (dsf["cfacpr"] == 0).any():
-         print(f"[warn] dsf: some rows have zero cfacpr.")
-    if (dsf["cfacshr"] == 0).any():
-        print(f"[warn] dsf: some rows have zero cfacshr.")
 
+    if (dsf["cfacpr"] == 0).any():
+        print("[warn] dsf: some rows have zero cfacpr.")
+    if (dsf["cfacshr"] == 0).any():
+        print("[warn] dsf: some rows have zero cfacshr.")
 
     n_neg = int((dsf["prc"] < 0).sum())
     if n_neg:
@@ -312,9 +311,9 @@ def pre_qa_dsf(dsf: pd.DataFrame) -> None:
     check_key_dupes(dsf, ["permno", "date"], "dsf")
 
 
-def _handle_zero_cfa_factors(df: pd.DataFrame, grouper) -> (pd.DataFrame):
+def _handle_zero_cfa_factors(df: pd.DataFrame, grouper) -> pd.DataFrame:
     """
-    Remove all rows where groups (by 'permno') contain any zero values 
+    Remove all rows where groups (by 'permno') contain any zero values
     in 'cfacpr' or 'cfacshr' columns.
 
     Parameters:
@@ -331,16 +330,22 @@ def _handle_zero_cfa_factors(df: pd.DataFrame, grouper) -> (pd.DataFrame):
 
     # Find permnos where any row has zero in cfacpr or cfacshr
     removed_permnos = [
-        permno for permno, group in grouper
+        permno
+        for permno, group in grouper
         if (group["cfacpr"] == 0).any() or (group["cfacshr"] == 0).any()
     ]
-    print(f"[info] Removed {len(removed_permnos)} permnos(companies) for having zero in cfacpr or cfacshr")
+    print(
+        f"[info] Removed {len(removed_permnos)} permnos(companies) for having zero in cfacpr or cfacshr"
+    )
 
     # Filter out rows with those permnos
-    filtered_df = df[~df.index.get_level_values('permno').isin(removed_permnos)].copy()
+    filtered_df = df[~df.index.get_level_values("permno").isin(removed_permnos)].copy()
     return filtered_df
 
-def _handle_negative_price(df: pd.DataFrame, grouper, max_neg_price_pct: float) -> (pd.DataFrame, list):
+
+def _handle_negative_price(
+    df: pd.DataFrame, grouper, max_neg_price_pct: float
+) -> (pd.DataFrame, list):
     """
     Remove groups where the proportion of rows with negative price exceeds max_neg_price_pct.
 
@@ -352,7 +357,7 @@ def _handle_negative_price(df: pd.DataFrame, grouper, max_neg_price_pct: float) 
     Returns:
         filtered_df (pd.DataFrame): DataFrame after removing groups.
         removed_permnos (list): List of permnos removed.
-        
+
     Side Effects:
         Prints [info] with the permnos removed.
     """
@@ -362,11 +367,14 @@ def _handle_negative_price(df: pd.DataFrame, grouper, max_neg_price_pct: float) 
         group_len = len(group)
         if neg_count > max_neg_price_pct * group_len:
             removed_permnos.append(permno)
-    print(f"[info] Removed {len(removed_permnos)} permnos(companies) for exceeding the threshold of negative prices")
-    filtered_df = df[~df.index.get_level_values('permno').isin(removed_permnos)].copy()
+    print(
+        f"[info] Removed {len(removed_permnos)} permnos(companies) for exceeding the threshold of negative prices"
+    )
+    filtered_df = df[~df.index.get_level_values("permno").isin(removed_permnos)].copy()
     filtered_df.loc[:, "prc"] = filtered_df["prc"].abs()
 
     return filtered_df
+
 
 def clean_dsf(dsf: pd.DataFrame) -> pd.DataFrame:
     """
@@ -554,7 +562,7 @@ def join_dsf_with_stocknames(dsf: pd.DataFrame, stock_names: pd.DataFrame) -> pd
     return _restore_index_if_needed(merged, orig_idx)
 
 
-def post_stockname_join_qa_cleaning(df: pd.DataFrame,  remove_unclean_permnos: bool = True) -> None:
+def post_stockname_join_qa_cleaning(df: pd.DataFrame, remove_unclean_permnos: bool = True) -> None:
     """
     Basic quality checks after joining DSF with stock names and Optionally removes unclean permnos.
 
@@ -581,12 +589,18 @@ def post_stockname_join_qa_cleaning(df: pd.DataFrame,  remove_unclean_permnos: b
                 f"[info] df_prices: {null_ticker_rate:.2%} rows lack ticker mapping on that date."
             )
             if remove_unclean_permnos:
-                unclean_permnos = df.loc[df["ticker"].isna()].index.get_level_values("permno").unique()
+                unclean_permnos = (
+                    df.loc[df["ticker"].isna()].index.get_level_values("permno").unique()
+                )
                 mask = ~df.index.get_level_values("permno").isin(unclean_permnos)
                 df = df.loc[mask].copy()
-                print(f"[info] Removed {len(unclean_permnos)} permnos with null ticker rows: {unclean_permnos}")
+                print(
+                    f"[info] Removed {len(unclean_permnos)} permnos with null ticker rows: {unclean_permnos}"
+                )
                 new_null_ticker_rate = float(df["ticker"].isna().mean())
-                print(f"[info] df_prices:after cleaning, {new_null_ticker_rate:.2%} rows lack ticker mapping on that date.")
+                print(
+                    f"[info] df_prices:after cleaning, {new_null_ticker_rate:.2%} rows lack ticker mapping on that date."
+                )
 
     if "adj_prc" in df.columns:
         near_zero = int((df["adj_prc"].abs() <= 1e-8).sum())
@@ -598,7 +612,6 @@ def post_stockname_join_qa_cleaning(df: pd.DataFrame,  remove_unclean_permnos: b
         if neg_cap:
             print(f"[warn] df_prices: {neg_cap:,} rows with negative market cap.")
     return df
-
 
 
 def pre_qa_ff(ff: pd.DataFrame) -> None:
@@ -1039,80 +1052,67 @@ def post_join_qa_prices_with_ibes_actu(df: pd.DataFrame) -> None:
             print(f"[info] ibes_act announcement time top values:\n{vc}")
 
 
-def get_top_n_market_cap_companies(username: str, n: int):
+def filter_tickers(stock_names: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     """
-    Retrieve the top N companies by market capitalization from the CRSP database.
+    Filter the stock_names DataFrame to include only rows where
+    the 'ticker' column matches any ticker in the given list.
 
-    Connects to WRDS using the given username, queries the CRSP daily stock file (dsf) 
-    and stock names (stocknames) to calculate market capitalization 
-    using absolute price multiplied by shares outstanding on the most recent date available.
-    
-    The output dataframe includes columns: permno, ticker, comnam, and market_cap.
-    
-    Parameters:
-    -----------
-    username : str
-        WRDS username for database connection.
-    n : int
-        Number of top companies by market capitalization to return.
-    
-    Returns:
-    --------
+    - Removes rows with missing tickers or permno.
+    - Returns only the 'permno' and 'ticker' columns for the filtered tickers.
+    - Removes duplicate ('permno', 'ticker') pairs.
+
+    Parameters
+    ----------
+    stock_names : pd.DataFrame
+        DataFrame containing at least 'permno' and 'ticker' columns.
+    tickers : list[str]
+        List of ticker symbols to filter for.
+
+    Returns
+    -------
     pd.DataFrame
-        DataFrame containing top N companies with their permno, ticker, company name, and market capitalization.
-        
-    Remark:
-    --------
-    Due to possible ties in market capitalization values at the cutoff rank, 
-    the function may return more than N companies if multiple companies share 
-    the same market capitalization as the Nth ranked company.
-    """
-    conn = wrds.Connection(wrds_username=username)
-
-    query = f"""
-    select d.permno, s.ticker, s.comnam, (abs(d.prc) * d.shrout) as market_cap
-    from crsp.dsf d
-    join crsp.stocknames s 
-      on d.permno = s.permno
-     and d.date between s.namedt and coalesce(s.nameenddt, '2999-12-31')
-    where d.date = (select max(date) from crsp.dsf)
-      and d.prc is not null
-      and d.shrout is not null
-      and d.shrout > 0
-      and d.prc <> 0
-    order by market_cap desc
-    limit {n}
+        Filtered DataFrame with columns 'permno' and 'ticker'.
     """
 
-    df = conn.raw_sql(query)
-    conn.close()
+    # Clean: drop rows with missing 'permno' or 'ticker'
+    df = stock_names.dropna(subset=["permno", "ticker"])
+
+    # Filter for tickers in the provided list (case sensitive)
+    df = df[df["ticker"].isin(tickers)]
+
+    # Select only 'permno' and 'ticker', removing any duplicate pairs
+    df = df[["permno", "ticker"]].drop_duplicates()
+
     return df
 
-def filter_main_df_by_top_companies(df_input: pd.DataFrame,df_companies_to_keep: pd.DataFrame) -> pd.DataFrame:
+
+def filter_by_tickers(df_input: pd.DataFrame, df_companies_to_keep: pd.DataFrame) -> pd.DataFrame:
     """
     Filter the input dataframe to keep only rows corresponding to companies present in the given companies dataframe.
 
-    The filter checks the columns 'permno', 'ticker', and 'comnam' if these exist in both dataframes, 
+    The filter checks the columns 'permno', 'ticker', and 'comnam' if these exist in both dataframes,
     and retains rows in df_input where any of these identifiers match those in df_companies_to_keep.
-    
+
     Parameters:
     -----------
     df_input : pd.DataFrame
         The main dataframe to be filtered.
     df_companies_to_keep : pd.DataFrame
         DataFrame of companies to keep, typically output from get_top_n_market_cap_companies.
-        
+
     Returns:
     --------
     pd.DataFrame
         Filtered dataframe containing only rows for companies present in df_companies_to_keep by at least one identifier.
     """
     # Get the top companies dataframe by calling the provided function
-    df= df_input.copy()
+    df = df_input.copy()
     top_companies_df = df_companies_to_keep.copy()
-    
-    keys_to_check = [col for col in ['permno', 'ticker', 'comnam'] if col in df.columns and col in top_companies_df.columns]
-    
+
+    keys_to_check = [
+        col for col in ["permno", "ticker"] if col in df.columns and col in top_companies_df.columns
+    ]
+
     if keys_to_check:
         mask = pd.Series(False, index=df.index)
         for key in keys_to_check:
@@ -1121,5 +1121,5 @@ def filter_main_df_by_top_companies(df_input: pd.DataFrame,df_companies_to_keep:
     else:
         # If no relevant columns found, return original dataframe or empty dataframe as needed
         filtered_df = df_input
-    
+
     return filtered_df

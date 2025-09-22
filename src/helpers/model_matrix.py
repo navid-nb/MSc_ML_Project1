@@ -4,17 +4,19 @@ import numpy as np
 import pandas as pd
 
 from src.helpers.data_cleanup import (
-    ensure_index,
     clean_dsf,
+    ensure_index,
+    filter_by_tickers,
+    filter_tickers,
     join_dsf_with_stocknames,
     join_prices_with_ff,
     join_prices_with_ibes,
     join_prices_with_ibes_actu,
     parquet_to_df,
-    post_stockname_join_qa_cleaning,
     post_join_qa_prices_with_ff,
     post_join_qa_prices_with_ibes,
     post_join_qa_prices_with_ibes_actu,
+    post_stockname_join_qa_cleaning,
     pre_qa_dsf,
     pre_qa_ff,
     pre_qa_ibes_actu,
@@ -22,8 +24,6 @@ from src.helpers.data_cleanup import (
     pre_qa_stocknames,
     prepare_ibes_actu_for_daily_merge,
     prepare_ibes_for_daily_merge,
-    get_top_n_market_cap_companies,
-    filter_main_df_by_top_companies,
 )
 from src.helpers.data_extraction import wrds_extract_raw
 from src.helpers.feature_engineering import add_technical_indicators
@@ -181,11 +181,6 @@ def build_model_matrix_from_df(
     out = _safe_shift_by_permno(out, factor_cols, lag_factors)
     out = _safe_shift_by_permno(out, actual_cols, lag_actuals)
 
-    # Drop the raw (unlagged) variants to avoid any lookahead leakage
-    to_drop = [c for c in (factor_cols + actual_cols) if c in out.columns]
-    if to_drop:
-        out = out.drop(columns=to_drop)
-
     # 3) Choose feature columns
     base_features = [
         "adj_prc",
@@ -203,6 +198,10 @@ def build_model_matrix_from_df(
         "cons_cv",
         "cons_range_pct",
     ]
+    # adding technical indicators as features
+    for col in out.columns:
+        if col.startswith("ti_"):
+            base_features.append(col)
 
     lagged_features = [
         f"{c}_lag{lag_factors}" for c in factor_cols if f"{c}_lag{lag_factors}" in out.columns
@@ -253,19 +252,25 @@ def null_report(df: pd.DataFrame, sort: bool = True) -> pd.DataFrame:
     return report
 
 
-def _remove_leading_nans(df: pd.DataFrame, remove_reason: str = 'no reason indicated') -> pd.DataFrame:
-    out=df.copy()
+def _remove_leading_nans(
+    df: pd.DataFrame, remove_reason: str = "no reason indicated"
+) -> pd.DataFrame:
+    out = df.copy()
     mask = ~out.isna().any(axis=1)
-    group_cumsum = mask.groupby(out.index.get_level_values('permno')).cumsum()
+    group_cumsum = mask.groupby(out.index.get_level_values("permno")).cumsum()
     out = out[group_cumsum > 0]
     total_rows = len(df)
     removed_pct = (total_rows - len(out)) / total_rows * 100 if total_rows else 0
-    print(f"[INFO] percentage of rows removed due to leading NaNs : {removed_pct:.4f}%  remove reason: {remove_reason}")
+    print(
+        f"[INFO] percentage of rows removed due to leading NaNs : {removed_pct:.4f}%  remove reason: {remove_reason}"
+    )
 
     return out
 
 
-def forward_fill_and_remove_initial_nans(df: pd.DataFrame, add_fill_source_columns: bool = False) -> pd.DataFrame:
+def forward_fill_and_remove_initial_nans(
+    df: pd.DataFrame, add_fill_source_columns: bool = False
+) -> pd.DataFrame:
     """
     Forward fills missing values within groups defined by 'permno' in a MultiIndex DataFrame,
     replaces columns that are entirely NaN within each group with dummy values before filling,
@@ -278,7 +283,7 @@ def forward_fill_and_remove_initial_nans(df: pd.DataFrame, add_fill_source_colum
     - Validates that 'permno' and 'date' exist as index levels.
     - Optionally adds columns showing the date from which forward fill values originate.
     - For each 'permno' group:
-      - Replaces columns that contain only NaN values within that group with dummy values 
+      - Replaces columns that contain only NaN values within that group with dummy values
         (-9999 for numeric columns, 'missing' for non-numeric columns) instead of dropping them,
         to maintain consistent column structure across groups.
       - Applies forward fill to propagate last valid observation forward.
@@ -298,44 +303,44 @@ def forward_fill_and_remove_initial_nans(df: pd.DataFrame, add_fill_source_colum
     pd.DataFrame
         Forward filled DataFrame with dummy-filled columns replacing all-NaN columns per group and leading NaN rows dropped.
     """
-    required_levels = {'permno', 'date'}
+    required_levels = {"permno", "date"}
     if not required_levels.issubset(set(df.index.names)):
         missing = required_levels - set(df.index.names)
-        raise ValueError(f"Input DataFrame must have MultiIndex levels named {required_levels}. Missing: {missing}")
-
+        raise ValueError(
+            f"Input DataFrame must have MultiIndex levels named {required_levels}. Missing: {missing}"
+        )
 
     out = df.copy()
-    dates = out.index.get_level_values('date')
-
+    dates = out.index.get_level_values("date")
 
     if add_fill_source_columns:
         cols_with_nans = df.columns[df.isna().any()].tolist()
-        suffix = '_ffill_source_date'
+        suffix = "_ffill_source_date"
         for col in cols_with_nans:
-            out[col + suffix] = pd.Series(
-                np.where(df[col].notna(), dates, pd.NaT),
-                index=df.index
-            )
-
+            out[col + suffix] = pd.Series(np.where(df[col].notna(), dates, pd.NaT), index=df.index)
 
     # messy trick: Replace all-NaN columns(empty columns) per group with -9999 (numeric) or 'missing' (non-numeric), then forward fill
     # if we don't do this before ffill, they will remain empty and cuse issues later
     # if we drop these columns, since for some groups they are not empty there will be inconsistency in the data since we're looking at the data for all companies as one big data frame
-    out = out.groupby(level='permno').apply(
-        lambda g: g.assign(**{col: (-9999 if pd.api.types.is_numeric_dtype(g[col]) else 'missing') for col in g.columns[g.isna().all()]}).ffill())
+    out = out.groupby(level="permno").apply(
+        lambda g: g.assign(
+            **{
+                col: (-9999 if pd.api.types.is_numeric_dtype(g[col]) else "missing")
+                for col in g.columns[g.isna().all()]
+            }
+        ).ffill()
+    )
 
     out.index = out.index.droplevel(0)
 
-    out=_remove_leading_nans(out,remove_reason='after forward filling empty cells')
-    
+    out = _remove_leading_nans(out, remove_reason="after forward filling empty cells")
+
     if out.isna().any().any():
         print("WARNING: NaN values remain after forward fill and dropping leading NaNs.")
     else:
         print("INFO: No NaN values remain after forward fill and dropping leading NaNs.")
 
     return out
-
-
 
 
 def _get_date_index(df: pd.DataFrame, date_name: str = "date") -> pd.DatetimeIndex:
@@ -439,7 +444,7 @@ def build_model_matrix_from_wrds(
     start: str,
     end: str,
     chunk_size: int,
-    n_companies_to_use: int,
+    tickers: list["str"],
     use_run: str,
 ) -> pd.DataFrame:
     """
@@ -451,6 +456,7 @@ def build_model_matrix_from_wrds(
         start (str): Extraction start date.
         end (str): Extraction end date.
         chunk_size (int): Chunk size for extraction.
+        tickers (list['str']): list of tickers to keep.
         use_run (str): Run folder usage ('new', 'last', or explicit).
 
     Returns:
@@ -474,22 +480,21 @@ def build_model_matrix_from_wrds(
     print(res)
 
     # Load
-    df_big_companies=get_top_n_market_cap_companies(username=wrds_user,n=n_companies_to_use)
+    stock_names = parquet_to_df(res["artifacts"], "stocknames.parquet")
+    df_filter = filter_tickers(stock_names, tickers)
+    stock_names = filter_by_tickers(stock_names, df_filter)
 
     dsf = parquet_to_df(res["artifacts"], "dsf.parquet")
-    dsf=filter_main_df_by_top_companies(dsf,df_big_companies)
-
-    stock_names = parquet_to_df(res["artifacts"], "stocknames.parquet")
-    stock_names=filter_main_df_by_top_companies(stock_names,df_big_companies)
+    dsf = filter_by_tickers(dsf, df_filter)
 
     ff = parquet_to_df(res["artifacts"], "ff.parquet")
-    ff=filter_main_df_by_top_companies(ff,df_big_companies)
+    ff = filter_by_tickers(ff, df_filter)
 
     ibes = parquet_to_df(res["artifacts"], "ibes_stats.parquet")
-    ibes=filter_main_df_by_top_companies(ibes,df_big_companies)
+    ibes = filter_by_tickers(ibes, df_filter)
 
     ibes_act = parquet_to_df(res["artifacts"], "ibes_act.parquet")
-    ibes_act=filter_main_df_by_top_companies(ibes_act,df_big_companies)
+    ibes_act = filter_by_tickers(ibes_act, df_filter)
 
     # Index & QA
     dsf = ensure_index(dsf, ["permno", "date"], keep_cols=False)
@@ -520,17 +525,15 @@ def build_model_matrix_from_wrds(
     post_join_qa_prices_with_ibes_actu(df_prices)
 
     # impute null using ffill and bfill
-    df_prices = forward_fill_and_remove_initial_nans(df_prices, add_fill_source_columns= True)
+    df_prices = forward_fill_and_remove_initial_nans(df_prices, add_fill_source_columns=False)
 
     # Technical indicators
-    df_prices.to_csv("temp_files/df_prices_before_fill.csv")
     df_prices = add_technical_indicators(df_prices)
-    df_prices=_remove_leading_nans(df_prices,remove_reason="after adding technical indictors")
-    df_prices.to_csv("temp_files/df_prices_after_fill.csv")
+    df_prices = _remove_leading_nans(df_prices, remove_reason="after adding technical indictors")
 
     # Final matrix
     model_df = build_model_matrix_from_df(df_prices)
-    model_df = model_df.reset_index(level=1, drop=True)
+    model_df = _remove_leading_nans(model_df, remove_reason="after build_model_matrix_from_df")
 
     print(f"[model] shape={model_df.shape}")
     print(f"[model] index={list(model_df.index.names)}")
@@ -541,37 +544,95 @@ def build_model_matrix_from_wrds(
     return model_df
 
 
-def build_matrix_from_all_stocks(all_stocks: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
-    """
-    Given a DataFrame with all stocks, filter to specified tickers, reindex to the global calendar,
-    forward and backward fill missing data, check shapes, and return the final DataFrame.
+def trim_to_divisible_by_252(df: pd.DataFrame) -> pd.DataFrame:
+    def trim_group(g):
+        n = len(g)
+        remainder = n % 252
+        if remainder == 0:
+            return g
+        # Drop rows from beginning to make length divisible by 252
+        return g.iloc[remainder:]
 
-    Parameters:
-        all_stocks (pd.DataFrame): Complete stocks DataFrame.
-        tickers (list[str]): List of tickers to select.
-
-    Returns:
-        pd.DataFrame: Final modeling matrix restricted to selected tickers.
-    """
-    master_cal = all_stocks.index.get_level_values("date").unique().sort_values()
-    print(len(master_cal))
-
-    df = all_stocks[all_stocks["ticker"].isin(tickers)]
-
-    df = reindex_each_permno_to_global_calendar(df, calendar=master_cal)
-    df = df.sort_index()
-
-    cols_to_fill = [c for c in df.columns if c != "Y"]
-    df[cols_to_fill] = (
-        df[cols_to_fill].groupby(level=0, group_keys=False).apply(lambda g: g.ffill().bfill())
+    # Assuming df has MultiIndex with 'permno' and 'date' as levels
+    # Group by 'permno' and apply trim_group, sorting by 'date' within groups
+    trimmed_df = (
+        df.groupby(level=0, group_keys=False)
+        .apply(lambda g: g.sort_index(level=1))
+        .groupby(level=0, group_keys=False)
+        .apply(trim_group)
     )
+    return trimmed_df
+
+
+def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aligns and fills missing dates in a multi-index DataFrame of stock data to ensure all stocks (permnos)
+    have the same date coverage.
+
+    The function:
+    - Copies the input DataFrame to avoid modifying the original.
+    - Computes the union of all unique dates present across all stocks.
+    - Computes the maximum of the minimum dates for each stock (permno) group, to find the
+      common earliest date where all stocks have data.
+    - Trims the global union of dates to start from this common earliest date.
+    - For each stock group:
+        - Reindexes the data to include all dates in the trimmed union (adding missing rows).
+        - Forward fills missing data within the group.
+    - Returns the filled and aligned DataFrame with consistent date indices per stock.
+
+    Parameters
+    ----------
+    all_stocks : pd.DataFrame
+        Multi-indexed DataFrame with index levels ['permno', 'date'].
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame aligned by dates across all stocks, with missing rows added and data forward-filled.
+    """
+    df = all_stocks.copy()
+
+    # Union of all dates across all stocks, sorted
+    all_dates = pd.Series(df.index.get_level_values("date").unique()).sort_values()
+
+    # Find the latest minimum date among groups (common starting date)
+    group_min_dates = df.groupby(level="permno").apply(
+        lambda g: g.index.get_level_values("date").min()
+    )
+    max_start_date = group_min_dates.max()
+
+    # Trim dates to start from this common date
+    trimmed_dates = all_dates[all_dates >= max_start_date].reset_index(drop=True)
+
+    def fill_group(group):
+        full_idx = pd.MultiIndex.from_product(
+            [[group.name], trimmed_dates], names=["permno", "date"]
+        )
+        group = group.reindex(full_idx)
+        group = group.ffill()
+        return group
+
+    filled_df = df.groupby(level="permno", group_keys=False).apply(fill_group)
+
+    # Validation: Check identical date indexes and equal row counts for all groups
+    groups = filled_df.groupby(level="permno")
+    reference_dates = None
+    expected_len = None
+    for permno, group in groups:
+        dates = group.index.get_level_values("date")
+        if reference_dates is None:
+            reference_dates = dates
+            expected_len = len(group)
+        else:
+            if len(group) != expected_len:
+                raise ValueError(f"Row count mismatch found in permno {permno}.")
+            if not dates.equals(reference_dates):
+                raise ValueError(f"Date index mismatch found in permno {permno}.")
+
+    print(f"All groups have consistent date indices and {expected_len} rows each.")
 
     print(df.shape)
-    print(null_report(df))
-    print(df.shape)
-    print(df.columns, df.index.names)
-    print(df.head(10))
+    print(null_report(df))  # Assuming null_report is defined elsewhere to show missing values info
+    print(df.index.names, df.columns)
 
-    assert df.shape[0] % 252 == 0, f"Row count {df.shape[0]} must divisible by 252"
-
-    return df
+    return filled_df
