@@ -434,7 +434,7 @@ def reindex_each_permno_to_global_calendar(
 
     # Build master calendar
     if calendar is None:
-        # Fallback to union of dates present (behaves like your current version)
+        # Fallback to union of dates present
         calendar = pd.Index(work[date_name].drop_duplicates().sort_values(), name=date_name)
     else:
         calendar = pd.Index(pd.to_datetime(calendar), name=date_name).sort_values()
