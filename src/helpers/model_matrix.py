@@ -119,40 +119,41 @@ def build_model_matrix_from_df(
     core_required: Sequence[str] = ("adj_prc", "adj_mktcap", "retx"),
 ) -> pd.DataFrame:
     """
-    Build a modeling matrix to predict next-day (t+1) log returns using lagged factors and actuals.
+    Build a modeling matrix to predict next-day (t+1) log returns using lagged factors and indicators.
 
-    TARGET (Y):
-        Y = next-day log return = log(adj_prc_{t+1} / adj_prc_t).
+    TARGET Y (adjclose_lead):
+        adjclose_lead = next-day log return = log(adj_prc_{t+1} / adj_prc_t).
 
-    LAGGING POLICY:
-        - Fama-French daily factors (mktrf, smb, hml, rf, umd) use lag_factors (t-1).
-        - IBES actuals (act_value, act_measure, pdicity) use lag_actuals (t-1).
+    FEATURE SET:
+        - Market features: adj_mktcap, vol, retx
+        - Return lags: adjclose_lag0 (current), adjclose_lag1, adjclose_lag2, adjclose_lag3
+        - Fama-French factors: mktrf, smb, hml, rf, umd (lagged by lag_factors, default 1)
+        - IBES consensus: n_analysts, n_up, n_down, cons_mean, cons_median, cons_stdev,
+          cons_high, cons_low, cons_cv, cons_range_pct
+        - Technical indicators: All columns starting with 'ti_'
 
-    FEATURE SET
-        - adj_prc, adj_mktcap, vol, retx,
-        IBES consensus fields if available: n_analysts, n_up, n_down,
-        cons_mean, cons_median, cons_stdev, cons_high, cons_low, cons_cv, cons_range_pct.
-
-    Added (lagged):
-        - mktrf_lag{lag_factors}, smb_lag{lag_factors}, hml_lag{lag_factors},
-        rf_lag{lag_factors}, umd_lag{lag_factors},
-        act_value_lag{lag_actuals}, act_measure_lag{lag_actuals}, pdicity_lag{lag_actuals}.
+    EXCLUDED FEATURES (to reduce multicollinearity):
+        - adj_prc (redundant with adjclose_lag0)
+        - IBES actuals (act_value, act_measure, pdicity)
+        - SMAs and EMAs (redundant with MACD)
+        - Extra MACD components (MACDh, MACDs)
+        - Bollinger Band sub-components (BBL, BBM, BBU, BBB) - keep only BBP
 
     Missing-data policy:
-    - If dropna=True, only enforce non-null on ['Y'] + core_required (default:
-      'adj_prc','adj_mktcap','retx'). Optional features are allowed to be NA.
+    - If dropna=True, only enforce non-null on ['adjclose_lead'] + core_required (default:
+      'adj_mktcap','retx'). Optional features are allowed to be NA.
     - If dropna=False, return all rows (impute later).
 
     Args:
         df_prices (pd.DataFrame): Price and factor data; multi-indexed by permno and date ideally.
-        lag_factors (int): Lag for factor variables.
-        lag_actuals (int): Lag for actual EPS variables.
+        lag_factors (int): Lag for factor variables (default 1).
+        lag_actuals (int): Lag for actual EPS variables (not used anymore).
         dropna (bool): Whether to drop rows missing target or core features.
         core_required (Sequence[str]): Core columns that must be non-null if dropna=True.
 
     Returns:
         DataFrame with MultiIndex (permno, date) if present on input.
-        Columns order: ['ticker' (if present), 'Y', <features...>].
+        Columns order: ['ticker' (if present), 'adjclose_lead', <features...>].
     """
     out = df_prices.copy()
 
@@ -164,29 +165,54 @@ def build_model_matrix_from_df(
         out = out.sort_index()
         gb = _groupby_permno(out)
         out["log_ret"] = gb["adj_prc"].transform(lambda s: np.log(s / s.shift(1)))
-        out["Y"] = gb["log_ret"].transform(lambda s: s.shift(-1))
+        out["adjclose_lead"] = gb["log_ret"].transform(
+            lambda s: s.shift(-1)
+        )  # Tomorrow's return (target)
+        # Add lagged log returns as features (adjclose_lag0 through adjclose_lag3)
+        out["adjclose_lag0"] = out["log_ret"]  # Current log return
+        out["adjclose_lag1"] = gb["log_ret"].transform(lambda s: s.shift(1))
+        out["adjclose_lag2"] = gb["log_ret"].transform(lambda s: s.shift(2))
+        out["adjclose_lag3"] = gb["log_ret"].transform(lambda s: s.shift(3))
     else:
         order = out.index
         tmp = out.sort_values(["permno", "date"]).copy()
         gb = tmp.groupby("permno", group_keys=False)
         tmp["log_ret"] = gb["adj_prc"].transform(lambda s: np.log(s / s.shift(1)))
-        tmp["Y"] = gb["log_ret"].transform(lambda s: s.shift(-1))
+        tmp["adjclose_lead"] = gb["log_ret"].transform(
+            lambda s: s.shift(-1)
+        )  # Tomorrow's return (target)
+        # Add lagged log returns as features
+        tmp["adjclose_lag0"] = tmp["log_ret"]
+        tmp["adjclose_lag1"] = gb["log_ret"].transform(lambda s: s.shift(1))
+        tmp["adjclose_lag2"] = gb["log_ret"].transform(lambda s: s.shift(2))
+        tmp["adjclose_lag3"] = gb["log_ret"].transform(lambda s: s.shift(3))
         out["log_ret"] = tmp["log_ret"].reindex(order)
-        out["Y"] = tmp["Y"].reindex(order)
+        out["adjclose_lead"] = tmp["adjclose_lead"].reindex(order)
+        out["adjclose_lag0"] = tmp["adjclose_lag0"].reindex(order)
+        out["adjclose_lag1"] = tmp["adjclose_lag1"].reindex(order)
+        out["adjclose_lag2"] = tmp["adjclose_lag2"].reindex(order)
+        out["adjclose_lag3"] = tmp["adjclose_lag3"].reindex(order)
 
-    # 2) Create lagged versions for factors & actuals
+    # 2) Create lagged versions for factors (rename to remove _lag1 suffix)
     factor_cols = ["mktrf", "smb", "hml", "rf", "umd"]
-    actual_cols = ["act_value", "act_measure", "pdicity"]
 
+    # Create lagged factors and rename them without the lag suffix
     out = _safe_shift_by_permno(out, factor_cols, lag_factors)
-    out = _safe_shift_by_permno(out, actual_cols, lag_actuals)
+
+    # Rename factor columns to remove _lag suffix (e.g., mktrf_lag1 -> mktrf)
+    for col in factor_cols:
+        lagged_col = f"{col}_lag{lag_factors}"
+        if lagged_col in out.columns:
+            out[col] = out[lagged_col]
+            out = out.drop(columns=[lagged_col])
 
     # 3) Choose feature columns
     base_features = [
-        "adj_prc",
+        # Price and volume features (excluding adj_prc to avoid multicollinearity with adjclose_lag0)
         "adj_mktcap",
         "vol",
         "retx",
+        # IBES consensus features (analyst coverage and estimates)
         "n_analysts",
         "n_up",
         "n_down",
@@ -197,27 +223,37 @@ def build_model_matrix_from_df(
         "cons_low",
         "cons_cv",
         "cons_range_pct",
+        # Lagged returns (our main price momentum features)
+        "adjclose_lag0",
+        "adjclose_lag1",
+        "adjclose_lag2",
+        "adjclose_lag3",
+        # Fama-French factors (already renamed without _lag suffix)
+        "mktrf",
+        "smb",
+        "hml",
+        "rf",
+        "umd",
     ]
-    # adding technical indicators as features
+    # Add technical indicators as features
     for col in out.columns:
         if col.startswith("ti_"):
             base_features.append(col)
 
-    lagged_features = [
-        f"{c}_lag{lag_factors}" for c in factor_cols if f"{c}_lag{lag_factors}" in out.columns
-    ] + [f"{c}_lag{lag_actuals}" for c in actual_cols if f"{c}_lag{lag_actuals}" in out.columns]
-
-    feature_cols = [c for c in base_features + lagged_features if c in out.columns]
+    # Only keep features that exist in the dataframe
+    feature_cols = [c for c in base_features if c in out.columns]
 
     # 4) Assemble final frame
     lead_cols = ["ticker"] if "ticker" in out.columns else []
-    final_cols = lead_cols + ["Y"] + feature_cols
+    final_cols = lead_cols + ["adjclose_lead"] + feature_cols
     final = out[final_cols]
 
     # 5) Controlled dropna
     if dropna:
         # Only enforce non-null on target + core_required features (if present)
-        required_now = ["Y"] + [c for c in core_required if c in final.columns]
+        # Note: adj_prc is no longer in core_required since we removed it from features
+        core_required_filtered = [c for c in core_required if c != "adj_prc" and c in final.columns]
+        required_now = ["adjclose_lead"] + core_required_filtered
         final = final.dropna(subset=required_now, how="any")
 
     return final
