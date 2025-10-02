@@ -349,6 +349,11 @@ def forward_fill_and_remove_initial_nans(
     out = df.copy()
     dates = out.index.get_level_values("date")
 
+    # removing bad columns
+    cols_to_remove = ['numtrd', 'pdicity', 'act_measure', 'act_value', 'curr_act', 'anntims', 'actdats', 'acttims', 'pends','cons_stdev','cons_cv']
+    out = out.drop(cols_to_remove, axis=1)
+    print("removed these columns manually: ", cols_to_remove)
+
     if add_fill_source_columns:
         cols_with_nans = df.columns[df.isna().any()].tolist()
         suffix = "_ffill_source_date"
@@ -542,34 +547,40 @@ def build_model_matrix_from_wrds(
     df_prices = join_dsf_with_stocknames(dsf, stock_names)
     df_prices = ensure_index(df_prices, ["permno", "date"], keep_cols=False)
     df_prices = post_stockname_join_qa_cleaning(df_prices, remove_unclean_permnos=True)
+    print("$$$$ df_prices initial shape : " , df_prices.shape)
 
     # adding FF
     pre_qa_ff(ff)
     df_prices = join_prices_with_ff(df_prices, ff)
     post_join_qa_prices_with_ff(df_prices)
+    # print("$$$$ df_prices shape after joining FF: " , df_prices.shape)
 
     # adding IBES statsumu (EPS)
     pre_qa_ibes_statsumu(ibes)
     ibes_daily = prepare_ibes_for_daily_merge(ibes)
     df_prices = join_prices_with_ibes(df_prices, ibes_daily)
     post_join_qa_prices_with_ibes(df_prices)
+    # print("$$$$ df_prices shape after joining IBES stats: " , df_prices.shape)
 
     # IBES actuals (EPS)
     pre_qa_ibes_actu(ibes_act)
     ibes_act_daily = prepare_ibes_actu_for_daily_merge(ibes_act)
     df_prices = join_prices_with_ibes_actu(df_prices, ibes_act_daily)
     post_join_qa_prices_with_ibes_actu(df_prices)
-
+    # print("$$$$ df_prices shape after joining IBES act: " , df_prices.shape)
     # impute null using ffill and bfill
     df_prices = forward_fill_and_remove_initial_nans(df_prices, add_fill_source_columns=False)
+    # print("$$$$ df_prices shape after forward_fill_and_remove_initial_nans: " , df_prices.shape)
 
     # Technical indicators
     df_prices = add_technical_indicators(df_prices)
     df_prices = _remove_leading_nans(df_prices, remove_reason="after adding technical indictors")
+    # print("$$$$ df_prices shape after dd_technical_indicators: " , df_prices.shape)
 
     # Final matrix
     model_df = build_model_matrix_from_df(df_prices)
     model_df = _remove_leading_nans(model_df, remove_reason="after build_model_matrix_from_df")
+    # print("$$$$ df_prices shape after build_model_matrix_from_df: " , model_df.shape)
 
     print(f"[model] shape={model_df.shape}")
     print(f"[model] index={list(model_df.index.names)}")
@@ -637,6 +648,20 @@ def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFram
     )
     max_start_date = group_min_dates.max()
 
+    # Find the latest minimum date among groups (common starting date)
+    group_min_dates = df.groupby(level="permno").apply(
+        lambda g: g.index.get_level_values("date").min()
+    )
+
+    # Print the initial date for each ticker (permno) after 2016-06-01
+    print("First date for each ticker (after 2016-06-01):")
+    for permno, first_date in group_min_dates.items():
+        if pd.to_datetime(first_date) > pd.Timestamp("2016-06-01"):
+            print(f"Ticker {permno}: {first_date}")
+
+    max_start_date = group_min_dates.max()
+
+
     # Trim dates to start from this common date
     trimmed_dates = all_dates[all_dates >= max_start_date].reset_index(drop=True)
 
@@ -667,8 +692,8 @@ def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFram
 
     print(f"All groups have consistent date indices and {expected_len} rows each.")
 
-    print(df.shape)
-    print(null_report(df))  # Assuming null_report is defined elsewhere to show missing values info
-    print(df.index.names, df.columns)
+    print(filled_df.shape)
+    print(null_report(filled_df))  # Assuming null_report is defined elsewhere to show missing values info
+    print(filled_df.index.names, filled_df.columns)
 
     return filled_df
