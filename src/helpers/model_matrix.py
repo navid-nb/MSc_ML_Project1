@@ -2,6 +2,7 @@ from typing import Literal, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+import os
 
 from src.helpers.data_cleanup import (
     clean_dsf,
@@ -25,7 +26,7 @@ from src.helpers.data_cleanup import (
     prepare_ibes_actu_for_daily_merge,
     prepare_ibes_for_daily_merge,
 )
-from src.helpers.data_extraction import wrds_extract_raw
+from src.helpers.data_extraction import (wrds_extract_raw,yfinance_extract)
 from src.helpers.feature_engineering import add_technical_indicators
 
 
@@ -515,6 +516,7 @@ def build_model_matrix_from_wrds(
     Returns:
         pd.DataFrame: Final model matrix ready for predictive modeling.
     """
+
     res = wrds_extract_raw(
         wrds_user=wrds_user,
         start=start,
@@ -531,6 +533,38 @@ def build_model_matrix_from_wrds(
         ],
     )
     print(res)
+
+    yfinance_extract(
+    tickers = [
+    # Volatility Indexes
+        "^VIX",   # CBOE Volatility Index: 30-day expected volatility of the S&P 500 (market fear gauge)
+        "^VXN",   # CBOE NASDAQ-100 Volatility Index: 30-day expected volatility of the Nasdaq-100 (tech-heavy)
+        "^OVX",   # CBOE Crude Oil Volatility Index: 30-day expected volatility of WTI Crude Oil futures
+        "^GVZ",   # CBOE Gold Volatility Index: 30-day expected volatility of Gold futures
+        # "^EVZ",   # CBOE Euro STOXX 50 Volatility Index: 30-day expected volatility of Eurozone blue-chip stocks
+        # "^TYVIX", # CBOE 10-Year Treasury Note Volatility Index: 30-day expected volatility of US 10-year Treasury futures
+        # "^VIX3M", # CBOE S&P 500 3-Month Volatility Index: 3-month expected volatility of the S&P 500
+        # "^VIX6M", # CBOE S&P 500 6-Month Volatility Index: 6-month expected volatility of the S&P 500
+
+    # Equity Indexes
+        "^GSPC",  # S&P 500: U.S. large-cap equity benchmark
+        "^IXIC",  # Nasdaq Composite: U.S. tech-heavy index
+        "^RUT",   # Russell 2000: U.S. small-cap index
+        # "^FTSE",  # FTSE 100: U.K. large-cap index
+        # "^N225",  # Nikkei 225: Japan's primary equity index
+        # "^GDAXI", # DAX: Germany's blue-chip index (DAX 40)
+
+    # Sector ETFs (for sector rotation/flow signals)
+        "XLK",    # Technology
+        "XLF",    # Financials
+        "XLE",    # Energy
+        "XLV",    # Health Care
+        "XLI",    # Industrials
+    ],
+    start_date=start, 
+    end_date=end,
+    output_path=os.path.join(res["run_folder"], "yfinance.parquet")
+    )
 
     # Load
     stock_names = parquet_to_df(res["artifacts"], "stocknames.parquet")

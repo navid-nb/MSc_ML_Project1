@@ -1,9 +1,54 @@
 import os
 from typing import Any, Dict, List, Tuple
+import yfinance as yf
+import pandas as pd
 
 from src.helpers._extract import ensure_dir, make_run_folder, safe_delete_dir
 from src.helpers._sql import assert_artifacts_present, extract_artifacts, wrds_connect
 
+def yfinance_(
+    tickers: List[str],
+    start_date: str,
+    end_date: str,
+    output_path: str = "data/yfinance.parquet"
+):
+    """
+    Download daily data for given tickers from yfinance and save as Parquet.
+    
+    Args:
+        tickers: List of ticker symbols (e.g., ["^VIX"]).
+        start_date: Start date in 'YYYY-MM-DD'.
+        end_date: End date in 'YYYY-MM-DD'.
+        output_path: Path to save the Parquet file.
+    """
+    all_data = []
+    
+    for ticker in tickers:
+        print(f"Downloading {ticker} from yfinance...")
+        data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+        
+        if data.empty:
+            print(f"Warning: No data returned for {ticker}")
+            continue
+            
+        # Use Close price, rename to ticker name
+        series = data["Close"].rename(ticker.lower().replace("^", "").strip())
+        series.index.name = "date"
+        all_data.append(series)
+    
+    # Combine all into one DataFrame
+    if not all_data:
+        raise ValueError("No data downloaded for any ticker.")
+        
+    df = pd.concat(all_data, axis=1).reset_index()
+    df["date"] = pd.to_datetime(df["date"]).dt.date  # Ensure date is date, not datetime
+    
+    # Create directory if needed
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
+    # Save to Parquet
+    df.to_parquet(output_path, index=False)
+    print(f"yfinance data saved to {output_path}")
 
 def wrds_extract_raw(
     wrds_user: str,
@@ -76,3 +121,50 @@ def wrds_extract_raw(
         "reuse": reuse,
         "artifacts": produced,
     }
+
+
+
+
+
+
+def yfinance_extract(
+    tickers: List[str],
+    start_date: str,
+    end_date: str,
+    output_path: str = "data/yfinance.parquet"
+):
+    """
+    Download daily data for given tickers from yfinance and save as Parquet.
+    Keeps all columns with ticker-prefixed names (e.g., ^vix_Close).
+    """
+    all_data = []
+    
+    for ticker in tickers:
+        data = yf.download(ticker, start=start_date, end=end_date, progress=False, auto_adjust=True)
+
+        
+        if data.empty:
+            print(f"Warning: No data returned for {ticker}")
+            continue
+            
+        # Prefix all columns with lowercase ticker (e.g., ^vix_Close)
+        ticker_name = ticker.lower()
+        # Flatten MultiIndex columns: (Close, ^VIX) -> ^VIX_Close
+        data.columns = [f"{col[1]}_{col[0].lower()}" for col in data.columns]
+
+
+        data.index.name = "date"
+        all_data.append(data)
+    
+    # Combine all DataFrames
+    if not all_data:
+        raise ValueError("No data downloaded for any ticker.")
+        
+    df = pd.concat(all_data, axis=1).reset_index()
+    df["date"] = pd.to_datetime(df["date"]).dt.date  # Ensure date is date type
+    
+    # Save to Parquet
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    df.to_parquet(output_path, index=False)
+    print(f"yfinance downloaded data for {tickers}")
+    print(f"yfinance data saved to {output_path}")
