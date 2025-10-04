@@ -25,8 +25,9 @@ from src.helpers.data_cleanup import (
     pre_qa_stocknames,
     prepare_ibes_actu_for_daily_merge,
     prepare_ibes_for_daily_merge,
+    join_prices_with_common_features,
 )
-from src.helpers.data_extraction import (wrds_extract_raw,yfinance_extract)
+from src.helpers.data_extraction import (wrds_extract_raw,common_features_extract)
 from src.helpers.feature_engineering import add_technical_indicators
 
 
@@ -241,6 +242,11 @@ def build_model_matrix_from_df(
         if col.startswith("ti_"):
             base_features.append(col)
 
+    # Add common features like vix, commodity prices and... as features
+    for col in out.columns:
+        if col.startswith("comm_"):
+            base_features.append(col)
+
     # Only keep features that exist in the dataframe
     feature_cols = [c for c in base_features if c in out.columns]
 
@@ -397,24 +403,6 @@ def forward_fill_and_remove_initial_nans(
     return out
 
 
-def _get_date_index(df: pd.DataFrame, date_name: str = "date") -> pd.DatetimeIndex:
-    """
-    Retrieve a sorted DatetimeIndex of unique dates from the DataFrame.
-
-    Parameters:
-        df (pd.DataFrame): Input DataFrame.
-        date_name (str): Name of the date column or index level.
-
-    Returns:
-        pd.DatetimeIndex: Sorted unique dates.
-    """
-    if date_name in (df.index.names or []):
-        di = pd.DatetimeIndex(df.index.get_level_values(date_name))
-    else:
-        di = pd.to_datetime(df[date_name], errors="raise")
-    return pd.DatetimeIndex(sorted(di.unique()))
-
-
 def reindex_each_permno_to_global_calendar(
     df: pd.DataFrame,
     date_name: str = "date",
@@ -533,38 +521,40 @@ def build_model_matrix_from_wrds(
         ],
     )
     print(res)
+    if use_run=="new":
+        common_features_extract(
+        tickers = [
+        # Volatility Indexes
+            "^VIX",   # CBOE Volatility Index: 30-day expected volatility of the S&P 500 (market fear gauge)
+            "^VXN",   # CBOE NASDAQ-100 Volatility Index: 30-day expected volatility of the Nasdaq-100 (tech-heavy)
+            "^OVX",   # CBOE Crude Oil Volatility Index: 30-day expected volatility of WTI Crude Oil futures
+            "^GVZ",   # CBOE Gold Volatility Index: 30-day expected volatility of Gold futures
+            # "^EVZ",   # CBOE Euro STOXX 50 Volatility Index: 30-day expected volatility of Eurozone blue-chip stocks
+            # "^TYVIX", # CBOE 10-Year Treasury Note Volatility Index: 30-day expected volatility of US 10-year Treasury futures
+            # "^VIX3M", # CBOE S&P 500 3-Month Volatility Index: 3-month expected volatility of the S&P 500
+            # "^VIX6M", # CBOE S&P 500 6-Month Volatility Index: 6-month expected volatility of the S&P 500
 
-    yfinance_extract(
-    tickers = [
-    # Volatility Indexes
-        "^VIX",   # CBOE Volatility Index: 30-day expected volatility of the S&P 500 (market fear gauge)
-        "^VXN",   # CBOE NASDAQ-100 Volatility Index: 30-day expected volatility of the Nasdaq-100 (tech-heavy)
-        "^OVX",   # CBOE Crude Oil Volatility Index: 30-day expected volatility of WTI Crude Oil futures
-        "^GVZ",   # CBOE Gold Volatility Index: 30-day expected volatility of Gold futures
-        # "^EVZ",   # CBOE Euro STOXX 50 Volatility Index: 30-day expected volatility of Eurozone blue-chip stocks
-        # "^TYVIX", # CBOE 10-Year Treasury Note Volatility Index: 30-day expected volatility of US 10-year Treasury futures
-        # "^VIX3M", # CBOE S&P 500 3-Month Volatility Index: 3-month expected volatility of the S&P 500
-        # "^VIX6M", # CBOE S&P 500 6-Month Volatility Index: 6-month expected volatility of the S&P 500
+        # Equity Indexes
+            "^GSPC",  # S&P 500: U.S. large-cap equity benchmark
+            "^IXIC",  # Nasdaq Composite: U.S. tech-heavy index
+            "^RUT",   # Russell 2000: U.S. small-cap index
+            # "^FTSE",  # FTSE 100: U.K. large-cap index
+            # "^N225",  # Nikkei 225: Japan's primary equity index
+            # "^GDAXI", # DAX: Germany's blue-chip index (DAX 40)
 
-    # Equity Indexes
-        "^GSPC",  # S&P 500: U.S. large-cap equity benchmark
-        "^IXIC",  # Nasdaq Composite: U.S. tech-heavy index
-        "^RUT",   # Russell 2000: U.S. small-cap index
-        # "^FTSE",  # FTSE 100: U.K. large-cap index
-        # "^N225",  # Nikkei 225: Japan's primary equity index
-        # "^GDAXI", # DAX: Germany's blue-chip index (DAX 40)
-
-    # Sector ETFs (for sector rotation/flow signals)
-        "XLK",    # Technology
-        "XLF",    # Financials
-        "XLE",    # Energy
-        "XLV",    # Health Care
-        "XLI",    # Industrials
-    ],
-    start_date=start, 
-    end_date=end,
-    output_path=os.path.join(res["run_folder"], "yfinance.parquet")
-    )
+        # Sector ETFs (for sector rotation/flow signals)
+            "XLK",    # Technology
+            "XLF",    # Financials
+            "XLE",    # Energy
+            "XLV",    # Health Care
+            "XLI",    # Industrials
+        ],
+        start_date=start, 
+        end_date=end,
+        output_path=os.path.join(res["run_folder"], "common_features.parquet")
+        )
+    else:
+        assert os.path.isfile(os.path.join(res["run_folder"], "common_features.parquet"))
 
     # Load
     stock_names = parquet_to_df(res["artifacts"], "stocknames.parquet")
@@ -613,8 +603,14 @@ def build_model_matrix_from_wrds(
     ibes_act_daily = prepare_ibes_actu_for_daily_merge(ibes_act)
     df_prices = join_prices_with_ibes_actu(df_prices, ibes_act_daily)
     post_join_qa_prices_with_ibes_actu(df_prices)
+
+
+    common_features = pd.read_parquet(os.path.join(res['run_folder'], "common_features.parquet"))
+    df_prices = join_prices_with_common_features(df_prices,common_features)
+
+
     # print("$$$$ df_prices shape after joining IBES act: " , df_prices.shape)
-    # impute null using ffill and bfill
+    # impute null using ffill
     df_prices = forward_fill_and_remove_initial_nans(df_prices, add_fill_source_columns=False)
     # print("$$$$ df_prices shape after forward_fill_and_remove_initial_nans: " , df_prices.shape)
 

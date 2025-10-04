@@ -127,7 +127,7 @@ def wrds_extract_raw(
 
 
 
-def yfinance_extract(
+def common_features_extract(
     tickers: List[str],
     start_date: str,
     end_date: str,
@@ -149,8 +149,8 @@ def yfinance_extract(
             
         # Prefix all columns with lowercase ticker (e.g., ^vix_Close)
         ticker_name = ticker.lower()
-        # Flatten MultiIndex columns: (Close, ^VIX) -> ^VIX_Close
-        data.columns = [f"{col[1]}_{col[0].lower()}" for col in data.columns]
+        # Flatten MultiIndex columns: e.g. (Close, ^VIX) -> comm_^VIX_Close
+        data.columns = [f"comm_{col[1]}_{col[0].lower()}" for col in data.columns]
 
 
         data.index.name = "date"
