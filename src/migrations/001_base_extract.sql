@@ -21,5 +21,4 @@ SELECT cusip,                                                -- 8-digit CUSIP id
        abs(prc * cfacpr) * (shrout * cfacshr) AS adj_mktcap  -- adjusted market cap
 FROM crsp.dsf
 WHERE "date" >= %(start)s::date
-  AND "date" <  %(end)s::date
-  AND hexcd = 3; -- nasdaq
+  AND "date" <  %(end)s::date;
