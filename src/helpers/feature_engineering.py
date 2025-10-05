@@ -272,6 +272,33 @@ def _add_technical_indicators_on_common_features(df: pd.DataFrame, tickers: list
     return out
 
 
+def add_lagged_columns(df: pd.DataFrame, lag_configs: dict) -> pd.DataFrame:
+    """
+    Add lagged versions of specified columns to the DataFrame.
+    
+    Parameters:
+        df (pd.DataFrame): Input DataFrame.
+        lag_configs (dict): Dictionary where:
+            - key = column name
+            - value = int or list of ints (lag(s) to create)
+            Example: {'retx': 1, 'mktrf': [1, 2, 3], 'cons_mean': 1}
+    
+    Returns:
+        pd.DataFrame: DataFrame with lagged columns added.
+    """
+    out = df.copy()
+    
+    for col, lags in lag_configs.items():
+        # Normalize lags to list
+        lag_list = [lags] if isinstance(lags, int) else lags
+        
+        for lag in lag_list:
+            lag_col = f"{col}_lag{lag}"
+            out[lag_col] = out.groupby(level='permno')[col].shift(lag)  # Respect permno groups
+    
+    return out
+
+
 def feature_augmentaion(df: pd.DataFrame) -> pd.DataFrame:
     out=df.copy()
     # ======================================================================================
@@ -290,13 +317,39 @@ def feature_augmentaion(df: pd.DataFrame) -> pd.DataFrame:
     )
     
     # ======================================================================================
-    # 3) ADD HIGH-VALUE RATIO FEATURES (ALL COLUMNS ASSUMED PRESENT)
+    # 3) ADD log return columns
+    # ======================================================================================
+    # Columns to compute log returns for
+    add_log_ret_columns = [
+    'adj_prc',
+    'adj_mktcap',
+    'vol',
+    'comm_^GSPC_close',
+    'comm_^IXIC_close',
+    'comm_^RUT_close',
+    'comm_XLK_close',
+    'comm_XLF_close',
+    'comm_XLE_close',
+    'comm_XLV_close',
+    'comm_XLI_close',
+    'comm_^VIX_close',
+    'comm_^VXN_close',
+    'comm_^OVX_close',
+    'comm_^GVZ_close',
+    ]
+    for col in add_log_ret_columns:
+        out[f"{col}_logret"] = np.log(
+            out[col] / out.groupby(level='permno')[col].shift(1)
+        )
+
+    # ======================================================================================
+    # 4) ADD meaningful RATIO FEATURES (ALL COLUMNS ASSUMED PRESENT)
     # ======================================================================================
     
     # VIX / S&P 500 Ratio: Market Fear Relative to Price Level
     # High ratio = elevated fear relative to market level (crash risk)
     # Low ratio = complacency
-    out['ratio_vix_spx'] = out['comm_^VIX_close'] / out['comm_^GSPC_close']
+    out['ratio_^VIX_^GSPC'] = out['comm_^VIX_close'] / out['comm_^GSPC_close']
     
     # Sector Relative Strength: Performance of each sector vs. S&P 500
     # Rising ratio = sector outperformance (money flowing in)
@@ -304,7 +357,7 @@ def feature_augmentaion(df: pd.DataFrame) -> pd.DataFrame:
     sector_etfs = ['XLK', 'XLF', 'XLE', 'XLV', 'XLI']
     for etf in sector_etfs:
         etf_col = f'comm_{etf}_close'
-        out[f'ratio_{etf}_spx'] = out[etf_col] / out['comm_^GSPC_close']
+        out[f'ratio_{etf}_^GSPC'] = out[etf_col] / out['comm_^GSPC_close']
     
     # Implied Volatility Minus Realized Volatility (IV - RV): Option Mispricing Signal
     # Positive = options are expensive (hedging demand, fear)
@@ -313,13 +366,144 @@ def feature_augmentaion(df: pd.DataFrame) -> pd.DataFrame:
     rv_30d = ret_spx.rolling(30).std() * np.sqrt(252)  # 30-day annualized realized vol
     out['ratio_volatility_premium'] = out['comm_^VIX_close'] - rv_30d
     
-    # # Market Beta Proxy: Stock sensitivity to market (risk-adjusted return)
-    # # Uses lagged returns only — no future data
-    # # High beta = volatile, low beta = defensive
-    # # Helps normalize stock moves in a market-neutral strategy
-    # ret_stock = np.log(out['adjclose_lag0'] / out['adjclose_lag1'])  # Today's return (from lag0 and lag1)
-    # ret_spx = np.log(out['comm_^GSPC_close'] / out['comm_^GSPC_close'].shift(1))  # S&P 500 return
-    # out['ratio_beta_proxy'] = ret_stock / (ret_spx + 1e-8)  # Avoid divide by zero
+    # Market Beta Proxy: Stock sensitivity to market (risk-adjusted return)
+    # High beta = volatile, low beta = defensive
+    # Avoid division by zero (rare, but possible if SPX unchanged)
+    out['ratio_beta_proxy'] = out['adj_prc_logret'] / (out['comm_^GSPC_close_logret'] + 1e-8)
 
+    # ======================================================================================
+    # 5) ADD lagged columns
+    # ======================================================================================
     
+    # Columns to add lagged versions of
+    lag_configs = {
+        # Price & Market Returns (Momentum: 1-day , 5-day = weekly)
+        'adj_prc_logret': [1,2,3,4,5],
+        'comm_^GSPC_close_logret': [1,5],
+        'comm_^IXIC_close_logret': [1,5],
+        'comm_^RUT_close_logret': [1,5],
+        # Sector Returns (Sector Rotation: 1-day)
+        'comm_XLK_close_logret': 1,
+        'comm_XLF_close_logret': 1,
+        'comm_XLE_close_logret': 1,
+        'comm_XLV_close_logret': 1,
+        'comm_XLI_close_logret': 1,
+        # Macro Ratios (Regime signals: 1-day)
+        'ratio_^VIX_^GSPC': 1,
+        'ratio_XLK_^GSPC': 1,
+        'ratio_XLF_^GSPC': 1,
+        'ratio_XLE_^GSPC': 1,
+        'ratio_XLV_^GSPC': 1,
+        'ratio_XLI_^GSPC': 1,
+        'ratio_volatility_premium': 1,
+    }
+    out = add_lagged_columns(out,lag_configs=lag_configs)
+
+    # ======================================================================================
+    # 5) ADD lead returns (Target Columns)
+    # ======================================================================================
+    lead_periods=[1, 5] # to forcast 1-day and 5-day(weekly) returns
+    for period in lead_periods:
+        lead_col = f"adj_prc_logret_lead{period}"
+        out[lead_col] = out.groupby(level='permno')['adj_prc_logret'].shift(-period)
+
     return out
+
+
+def build_final_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Select and return only the features to be used in the ML model.
+    
+    Removes:
+    - Raw price, volume, OHLC columns
+    - ETF/index high, low, open, volume
+    - Technical indicators on ETFs/indexes (comm_ti_*)
+    - Any non-stationary or redundant columns
+    
+    Returns a clean DataFrame ready for modeling.
+    """
+    # List of column prefixes to REMOVE
+    drop_patterns = [
+        'comm_^VIX_', 'comm_^VXN_', 'comm_^OVX_', 'comm_^GVZ_',
+        'comm_^GSPC_', 'comm_^IXIC_', 'comm_^RUT_',
+        'comm_XLK_', 'comm_XLF_', 'comm_XLE_', 'comm_XLV_', 'comm_XLI_',
+        'adj_prc', 'prc', 'bidlo', 'askhi', 'openprc', 'bid', 'ask',
+        'shrout', 'adj_shrout',
+        'comm_ti_',  # All ETF/index technical indicators (harmful)
+    ]
+    
+    # Columns to keep (explicit list to avoid accidental drops)
+    feature_cols = []
+    
+    # Add all log return columns (our core stationary features)
+    for col in df.columns:
+        if col.endswith('_logret') and col not in feature_cols:
+            feature_cols.append(col)
+
+    # Add lagged features (momentum, sentiment, etc.)
+    for col in df.columns:
+        if '_lag' in col and col not in feature_cols:
+            feature_cols.append(col)
+
+    # Add ratio features (macro regime signals)
+    ratio_features = [
+        'ratio_^VIX_^GSPC',
+        'ratio_XLK_^GSPC', 'ratio_XLF_^GSPC', 'ratio_XLE_^GSPC',
+        'ratio_XLV_^GSPC', 'ratio_XLI_^GSPC',
+        'ratio_volatility_premium',
+        'ratio_beta_proxy',
+    ]
+    # Fix: change 'keep_columns' to 'feature_cols'
+    feature_cols.extend([f for f in ratio_features if f in df.columns])
+    
+    # Add IBES consensus and count features
+    ibes_features = [
+        'n_analysts', 'n_up', 'n_down',
+        'cons_mean', 'cons_median', 'cons_stdev',
+        'cons_high', 'cons_low', 'cons_cv', 'cons_range_pct'
+    ]
+    # Fix: change 'keep_columns' to 'feature_cols'
+    feature_cols.extend([f for f in ibes_features if f in df.columns])
+    
+    # Add Fama-French factors
+    ff_factors = ['mktrf', 'smb', 'hml', 'rf', 'umd']
+    # Fix: change 'keep_columns' to 'feature_cols'
+    feature_cols.extend([f for f in ff_factors if f in df.columns])
+    
+    # Add technical indicators 
+    for col in df.columns:
+        if 'ti_' in col and col not in feature_cols:
+            feature_cols.append(col)
+
+    # === WARNING: Check for duplicates ===
+    seen = set()
+    duplicates = []
+    for col in feature_cols:
+        if col in seen:
+            duplicates.append(col)
+        else:
+            seen.add(col)
+    
+    if duplicates:
+        print(f"⚠️  Warning: Duplicate columns added to feature list: {sorted(set(duplicates))}")
+
+    # === WARNING: Check for missing columns ===
+    missing = [col for col in feature_cols if col not in df.columns]
+    if missing:
+        print(f"⚠️  Warning: These feature columns are not in the DataFrame and will be ignored: {sorted(missing)}")
+    
+    # Now remove duplicates and missing (but user sees warning first)
+    feature_cols = list(dict.fromkeys(feature_cols))  # Preserves order, removes duplicates
+    feature_cols = [col for col in feature_cols if col in df.columns]
+
+    # Final selection
+    lead_cols = ["ticker"] if "ticker" in df.columns else []
+    target_cols = [col for col in df.columns if 'lead' in col and col.startswith('adj_prc_logret')]
+    final_cols = lead_cols + target_cols + feature_cols
+
+    dropped_columns = [col for col in df.columns if col not in final_cols]
+    print(f" Dropped {len(dropped_columns)} columns when building final matrix- dropped columns:")
+    print(dropped_columns)
+    
+    return df[final_cols].copy()
+

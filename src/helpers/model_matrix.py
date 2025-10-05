@@ -28,7 +28,7 @@ from src.helpers.data_cleanup import (
     join_prices_with_common_features,
 )
 from src.helpers.data_extraction import (wrds_extract_raw,common_features_extract)
-from src.helpers.feature_engineering import feature_augmentaion
+from src.helpers.feature_engineering import feature_augmentaion,build_final_matrix
 
 
 def _permno_level_number(df: pd.DataFrame) -> int | None:
@@ -158,55 +158,49 @@ def build_model_matrix_from_df(
         Columns order: ['ticker' (if present), 'adjclose_lead', <features...>].
     """
     out = df_prices.copy()
-
+    out.to_csv("out.csv")
     # 1) Target Y = t+1 log return using adjusted price
-    if "adj_prc" not in out.columns:
-        raise KeyError("build_model_matrix: expected 'adj_prc' in df_prices.")
 
-    if "permno" in (out.index.names or []):
-        out = out.sort_index()
-        gb = _groupby_permno(out)
-        out["log_ret"] = gb["adj_prc"].transform(lambda s: np.log(s / s.shift(1)))
-        out["adjclose_lead"] = gb["log_ret"].transform(
-            lambda s: s.shift(-1)
-        )  # Tomorrow's return (target)
-        # Add lagged log returns as features (adjclose_lag0 through adjclose_lag3)
-        out["adjclose_lag0"] = out["log_ret"]  # Current log return
-        out["adjclose_lag1"] = gb["log_ret"].transform(lambda s: s.shift(1))
-        out["adjclose_lag2"] = gb["log_ret"].transform(lambda s: s.shift(2))
-        out["adjclose_lag3"] = gb["log_ret"].transform(lambda s: s.shift(3))
-    else:
-        order = out.index
-        tmp = out.sort_values(["permno", "date"]).copy()
-        gb = tmp.groupby("permno", group_keys=False)
-        tmp["log_ret"] = gb["adj_prc"].transform(lambda s: np.log(s / s.shift(1)))
-        tmp["adjclose_lead"] = gb["log_ret"].transform(
-            lambda s: s.shift(-1)
-        )  # Tomorrow's return (target)
-        # Add lagged log returns as features
-        tmp["adjclose_lag0"] = tmp["log_ret"]
-        tmp["adjclose_lag1"] = gb["log_ret"].transform(lambda s: s.shift(1))
-        tmp["adjclose_lag2"] = gb["log_ret"].transform(lambda s: s.shift(2))
-        tmp["adjclose_lag3"] = gb["log_ret"].transform(lambda s: s.shift(3))
-        out["log_ret"] = tmp["log_ret"].reindex(order)
-        out["adjclose_lead"] = tmp["adjclose_lead"].reindex(order)
-        out["adjclose_lag0"] = tmp["adjclose_lag0"].reindex(order)
-        out["adjclose_lag1"] = tmp["adjclose_lag1"].reindex(order)
-        out["adjclose_lag2"] = tmp["adjclose_lag2"].reindex(order)
-        out["adjclose_lag3"] = tmp["adjclose_lag3"].reindex(order)
+    # out["adjclose_lead"] = gb["adj_prc_logret"].transform(
+    #         lambda s: s.shift(-1)
+    #     )  # Tomorrow's return (target)
+    #     # Add lagged log returns as features (adjclose_lag0 through adjclose_lag3)
+    #     out["adjclose_lag0"] = out["log_ret"]  # Current log return
+    #     out["adjclose_lag1"] = gb["log_ret"].transform(lambda s: s.shift(1))
+    #     out["adjclose_lag2"] = gb["log_ret"].transform(lambda s: s.shift(2))
+    #     out["adjclose_lag3"] = gb["log_ret"].transform(lambda s: s.shift(3))
+    # else:
+    #     order = out.index
+    #     tmp = out.sort_values(["permno", "date"]).copy()
+    #     gb = tmp.groupby("permno", group_keys=False)
+    #     tmp["log_ret"] = gb["adj_prc"].transform(lambda s: np.log(s / s.shift(1)))
+    #     tmp["adjclose_lead"] = gb["log_ret"].transform(
+    #         lambda s: s.shift(-1)
+    #     )  # Tomorrow's return (target)
+    #     # Add lagged log returns as features
+    #     tmp["adjclose_lag0"] = tmp["log_ret"]
+    #     tmp["adjclose_lag1"] = gb["log_ret"].transform(lambda s: s.shift(1))
+    #     tmp["adjclose_lag2"] = gb["log_ret"].transform(lambda s: s.shift(2))
+    #     tmp["adjclose_lag3"] = gb["log_ret"].transform(lambda s: s.shift(3))
+    #     out["log_ret"] = tmp["log_ret"].reindex(order)
+    #     out["adjclose_lead"] = tmp["adjclose_lead"].reindex(order)
+    #     out["adjclose_lag0"] = tmp["adjclose_lag0"].reindex(order)
+    #     out["adjclose_lag1"] = tmp["adjclose_lag1"].reindex(order)
+    #     out["adjclose_lag2"] = tmp["adjclose_lag2"].reindex(order)
+    #     out["adjclose_lag3"] = tmp["adjclose_lag3"].reindex(order)
 
-    # 2) Create lagged versions for factors (rename to remove _lag1 suffix)
-    factor_cols = ["mktrf", "smb", "hml", "rf", "umd"]
+    # # 2) Create lagged versions for factors (rename to remove _lag1 suffix)
+    # factor_cols = ["mktrf", "smb", "hml", "rf", "umd"]
 
-    # Create lagged factors and rename them without the lag suffix
-    out = _safe_shift_by_permno(out, factor_cols, lag_factors)
+    # # Create lagged factors and rename them without the lag suffix
+    # out = _safe_shift_by_permno(out, factor_cols, lag_factors)
 
-    # Rename factor columns to remove _lag suffix (e.g., mktrf_lag1 -> mktrf)
-    for col in factor_cols:
-        lagged_col = f"{col}_lag{lag_factors}"
-        if lagged_col in out.columns:
-            out[col] = out[lagged_col]
-            out = out.drop(columns=[lagged_col])
+    # # Rename factor columns to remove _lag suffix (e.g., mktrf_lag1 -> mktrf)
+    # for col in factor_cols:
+    #     lagged_col = f"{col}_lag{lag_factors}"
+    #     if lagged_col in out.columns:
+    #         out[col] = out[lagged_col]
+    #         out = out.drop(columns=[lagged_col])
 
     # 3) Choose feature columns
     base_features = [
@@ -251,17 +245,18 @@ def build_model_matrix_from_df(
     feature_cols = [c for c in base_features if c in out.columns]
 
     # 4) Assemble final frame
-    lead_cols = ["ticker"] if "ticker" in out.columns else []
-    final_cols = lead_cols + ["adjclose_lead"] + feature_cols
+    ticker_col = ["ticker"] if "ticker" in out.columns else []
+    target_cols = [col for col in out.columns if "lead" in col]
+    final_cols = ticker_col + target_cols + feature_cols
     final = out[final_cols]
 
     # 5) Controlled dropna
-    if dropna:
-        # Only enforce non-null on target + core_required features (if present)
-        # Note: adj_prc is no longer in core_required since we removed it from features
-        core_required_filtered = [c for c in core_required if c != "adj_prc" and c in final.columns]
-        required_now = ["adjclose_lead"] + core_required_filtered
-        final = final.dropna(subset=required_now, how="any")
+    # if dropna:
+    #     # Only enforce non-null on target + core_required features (if present)
+    #     # Note: adj_prc is no longer in core_required since we removed it from features
+    #     core_required_filtered = [c for c in core_required if c != "adj_prc" and c in final.columns]
+    #     required_now = ["adjclose_lead"] + core_required_filtered
+    #     final = final.dropna(subset=required_now, how="any")
 
     return final
 
@@ -590,12 +585,12 @@ def build_model_matrix_from_wrds(
 
     # Technical indicators
     df_prices = feature_augmentaion(df_prices)
-    df_prices = _remove_leading_nans(df_prices, remove_reason="after adding technical indictors")
+    df_prices = _remove_leading_nans(df_prices, remove_reason="after feature augmentaion")
     # print("$$$$ df_prices shape after dd_technical_indicators: " , df_prices.shape)
 
     # Final matrix
-    model_df = build_model_matrix_from_df(df_prices)
-    model_df = _remove_leading_nans(model_df, remove_reason="after build_model_matrix_from_df")
+    model_df = build_final_matrix(df_prices)
+    model_df = _remove_leading_nans(model_df, remove_reason="after build_final_matrix")
     # print("$$$$ df_prices shape after build_model_matrix_from_df: " , model_df.shape)
 
     print(f"[model] shape={model_df.shape}")
