@@ -2,6 +2,7 @@ from typing import Optional, Union
 
 import pandas as pd
 import pandas_ta as ta
+import numpy as np
 
 pd.set_option("future.no_silent_downcasting", True)
 
@@ -42,7 +43,7 @@ def _join_ind_result_to_out(
     return df
 
 
-def add_technical_indicators(
+def _add_technical_indicators(
     df: pd.DataFrame,
     *,
     open_col: str = "openprc",
@@ -233,40 +234,92 @@ def add_technical_indicators(
 
 
 
-def feature_augmentaion(df):
-    out=df.copy()
-    #1) add technical indicators on tickers 
-    out=add_technical_indicators(out)
-
-    #2) add technical indicators on common features (indexes and etfs)
-    # Collect base keys (like ^VIX, ^VXN, XLF, etc.) from columns starting with 'comm_'
-    comm_keys = set()
-    for col in df.columns:
-        if col.startswith('comm_'):
-            parts = col.split('_')
-            # Join together all parts between 'comm' and the last part (which is open/high/low/close/volume)
-            # Works for e.g. comm_^VIX_close or comm_XLF_volume
-            if len(parts) > 2:
-                key = '_'.join(parts[1:-1])
-                comm_keys.add(key)
-
-    for comm in sorted(comm_keys):
-        open_col   = f'comm_{comm}_open'
-        high_col   = f'comm_{comm}_high'
-        low_col    = f'comm_{comm}_low'
-        close_col  = f'comm_{comm}_close'
-        vol_col    = f'comm_{comm}_volume'
-        # Only call if all required columns are present
-        if all(col in df.columns for col in [open_col, high_col, low_col, close_col, vol_col]):
-            out=add_technical_indicators(
+def _add_technical_indicators_on_common_features(df: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
+    """
+    Add technical indicators to common features (indexes/ETFs) for a specified list of tickers.
+    
+    Parameters:
+        df (pd.DataFrame): Input DataFrame with columns like 'comm_^VIX_close', etc.
+        tickers (list of str): List of tickers to process (e.g., ['^VIX', '^GSPC']).
+    
+    Returns:
+        pd.DataFrame: DataFrame with TI columns added.
+    """
+    out = df.copy()
+    
+    for ticker in tickers:
+        open_col   = f'comm_{ticker}_open'
+        high_col   = f'comm_{ticker}_high'
+        low_col    = f'comm_{ticker}_low'
+        close_col  = f'comm_{ticker}_close'
+        vol_col    = f'comm_{ticker}_volume'
+        
+        # Only add TIs if all price/volume columns exist
+        if all(col in out.columns for col in [open_col, high_col, low_col, close_col, vol_col]):
+            out = _add_technical_indicators(
                 out,
                 open_col=open_col,
                 high_col=high_col,
                 low_col=low_col,
                 close_col=close_col,
                 vol_col=vol_col,
-                prefix=f"comm_ti_{comm}_"  # e.g., comm_ti_^VIX_
+                prefix=f"comm_ti_{ticker}_"  # e.g., comm_ti_^VIX_
             )
-    #removing columns that are all NaN (e.g. indexes dont have volume data so eom and cmf ouputs are all NaN)
+    
+    # Remove columns that are all NaN (e.g., CMF, EOM if volume is missing)
     out = out.dropna(axis=1, how='all')
+    
+    return out
+
+
+def feature_augmentaion(df: pd.DataFrame) -> pd.DataFrame:
+    out=df.copy()
+    # ======================================================================================
+    #1) add technical indicators on tickers 
+    # ======================================================================================
+    out=_add_technical_indicators(out)
+    
+    # ======================================================================================
+    #2) add technical indicators on common features (indexes and etfs)
+    # ======================================================================================
+
+    # the technical indicators only for common features in tickers_list will be added
+    tickers_list = ['^VIX', '^GSPC']
+    out = _add_technical_indicators_on_common_features(
+        out, tickers=tickers_list
+    )
+    
+    # ======================================================================================
+    # 3) ADD HIGH-VALUE RATIO FEATURES (ALL COLUMNS ASSUMED PRESENT)
+    # ======================================================================================
+    
+    # VIX / S&P 500 Ratio: Market Fear Relative to Price Level
+    # High ratio = elevated fear relative to market level (crash risk)
+    # Low ratio = complacency
+    out['ratio_vix_spx'] = out['comm_^VIX_close'] / out['comm_^GSPC_close']
+    
+    # Sector Relative Strength: Performance of each sector vs. S&P 500
+    # Rising ratio = sector outperformance (money flowing in)
+    # Falling ratio = underperformance (rotation out)
+    sector_etfs = ['XLK', 'XLF', 'XLE', 'XLV', 'XLI']
+    for etf in sector_etfs:
+        etf_col = f'comm_{etf}_close'
+        out[f'ratio_{etf}_spx'] = out[etf_col] / out['comm_^GSPC_close']
+    
+    # Implied Volatility Minus Realized Volatility (IV - RV): Option Mispricing Signal
+    # Positive = options are expensive (hedging demand, fear)
+    # Negative = options are cheap (complacency, low hedging)
+    ret_spx = np.log(out['comm_^GSPC_close'] / out['comm_^GSPC_close'].shift(1))
+    rv_30d = ret_spx.rolling(30).std() * np.sqrt(252)  # 30-day annualized realized vol
+    out['ratio_volatility_premium'] = out['comm_^VIX_close'] - rv_30d
+    
+    # # Market Beta Proxy: Stock sensitivity to market (risk-adjusted return)
+    # # Uses lagged returns only — no future data
+    # # High beta = volatile, low beta = defensive
+    # # Helps normalize stock moves in a market-neutral strategy
+    # ret_stock = np.log(out['adjclose_lag0'] / out['adjclose_lag1'])  # Today's return (from lag0 and lag1)
+    # ret_spx = np.log(out['comm_^GSPC_close'] / out['comm_^GSPC_close'].shift(1))  # S&P 500 return
+    # out['ratio_beta_proxy'] = ret_stock / (ret_spx + 1e-8)  # Avoid divide by zero
+
+    
     return out
