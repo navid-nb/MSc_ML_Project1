@@ -350,7 +350,19 @@ def forward_fill_and_remove_initial_nans(
     dates = out.index.get_level_values("date")
 
     # removing bad columns
-    cols_to_remove = ['numtrd', 'pdicity', 'act_measure', 'act_value', 'curr_act', 'anntims', 'actdats', 'acttims', 'pends','cons_stdev','cons_cv']
+    cols_to_remove = [
+        "numtrd",
+        "pdicity",
+        "act_measure",
+        "act_value",
+        "curr_act",
+        "anntims",
+        "actdats",
+        "acttims",
+        "pends",
+        "cons_stdev",
+        "cons_cv",
+    ]
     out = out.drop(cols_to_remove, axis=1)
     print("removed these columns manually: ", cols_to_remove)
 
@@ -547,7 +559,7 @@ def build_model_matrix_from_wrds(
     df_prices = join_dsf_with_stocknames(dsf, stock_names)
     df_prices = ensure_index(df_prices, ["permno", "date"], keep_cols=False)
     df_prices = post_stockname_join_qa_cleaning(df_prices, remove_unclean_permnos=True)
-    print("$$$$ df_prices initial shape : " , df_prices.shape)
+    print("$$$$ df_prices initial shape : ", df_prices.shape)
 
     # adding FF
     pre_qa_ff(ff)
@@ -661,7 +673,6 @@ def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFram
 
     max_start_date = group_min_dates.max()
 
-
     # Trim dates to start from this common date
     trimmed_dates = all_dates[all_dates >= max_start_date].reset_index(drop=True)
 
@@ -693,7 +704,9 @@ def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFram
     print(f"All groups have consistent date indices and {expected_len} rows each.")
 
     print(filled_df.shape)
-    print(null_report(filled_df))  # Assuming null_report is defined elsewhere to show missing values info
+    print(
+        null_report(filled_df)
+    )  # Assuming null_report is defined elsewhere to show missing values info
     print(filled_df.index.names, filled_df.columns)
 
     return filled_df
