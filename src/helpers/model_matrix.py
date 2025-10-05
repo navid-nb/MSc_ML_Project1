@@ -28,7 +28,7 @@ from src.helpers.data_cleanup import (
     join_prices_with_common_features,
 )
 from src.helpers.data_extraction import (wrds_extract_raw,common_features_extract)
-from src.helpers.feature_engineering import add_technical_indicators
+from src.helpers.feature_engineering import feature_augmentaion
 
 
 def _permno_level_number(df: pd.DataFrame) -> int | None:
@@ -523,32 +523,6 @@ def build_model_matrix_from_wrds(
     print(res)
     if use_run=="new":
         common_features_extract(
-        tickers = [
-        # Volatility Indexes
-            "^VIX",   # CBOE Volatility Index: 30-day expected volatility of the S&P 500 (market fear gauge)
-            "^VXN",   # CBOE NASDAQ-100 Volatility Index: 30-day expected volatility of the Nasdaq-100 (tech-heavy)
-            "^OVX",   # CBOE Crude Oil Volatility Index: 30-day expected volatility of WTI Crude Oil futures
-            "^GVZ",   # CBOE Gold Volatility Index: 30-day expected volatility of Gold futures
-            # "^EVZ",   # CBOE Euro STOXX 50 Volatility Index: 30-day expected volatility of Eurozone blue-chip stocks
-            # "^TYVIX", # CBOE 10-Year Treasury Note Volatility Index: 30-day expected volatility of US 10-year Treasury futures
-            # "^VIX3M", # CBOE S&P 500 3-Month Volatility Index: 3-month expected volatility of the S&P 500
-            # "^VIX6M", # CBOE S&P 500 6-Month Volatility Index: 6-month expected volatility of the S&P 500
-
-        # Equity Indexes
-            "^GSPC",  # S&P 500: U.S. large-cap equity benchmark
-            "^IXIC",  # Nasdaq Composite: U.S. tech-heavy index
-            "^RUT",   # Russell 2000: U.S. small-cap index
-            # "^FTSE",  # FTSE 100: U.K. large-cap index
-            # "^N225",  # Nikkei 225: Japan's primary equity index
-            # "^GDAXI", # DAX: Germany's blue-chip index (DAX 40)
-
-        # Sector ETFs (for sector rotation/flow signals)
-            "XLK",    # Technology
-            "XLF",    # Financials
-            "XLE",    # Energy
-            "XLV",    # Health Care
-            "XLI",    # Industrials
-        ],
         start_date=start, 
         end_date=end,
         output_path=os.path.join(res["run_folder"], "common_features.parquet")
@@ -615,7 +589,7 @@ def build_model_matrix_from_wrds(
     # print("$$$$ df_prices shape after forward_fill_and_remove_initial_nans: " , df_prices.shape)
 
     # Technical indicators
-    df_prices = add_technical_indicators(df_prices)
+    df_prices = feature_augmentaion(df_prices)
     df_prices = _remove_leading_nans(df_prices, remove_reason="after adding technical indictors")
     # print("$$$$ df_prices shape after dd_technical_indicators: " , df_prices.shape)
 
@@ -688,16 +662,11 @@ def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFram
     group_min_dates = df.groupby(level="permno").apply(
         lambda g: g.index.get_level_values("date").min()
     )
-    max_start_date = group_min_dates.max()
-
-    # Find the latest minimum date among groups (common starting date)
-    group_min_dates = df.groupby(level="permno").apply(
-        lambda g: g.index.get_level_values("date").min()
-    )
 
     # Print the initial date for each ticker (permno) after 2016-06-01
     print("First date for each ticker (after 2016-06-01):")
     for permno, first_date in group_min_dates.items():
+        print(first_date)
         if pd.to_datetime(first_date) > pd.Timestamp("2016-06-01"):
             print(f"Ticker {permno}: {first_date}")
 

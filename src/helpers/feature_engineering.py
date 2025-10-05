@@ -10,6 +10,7 @@ def _join_ind_result_to_out(
     df: pd.DataFrame,
     ind_result: Union[pd.Series, pd.DataFrame],
     col_name: Optional[str] = None,
+    prefix: str = 'ti_'
 ) -> pd.DataFrame:
     """
     Join the result of a technical indicator calculation back into the main DataFrame.
@@ -29,11 +30,11 @@ def _join_ind_result_to_out(
     result = ind_result.reindex(df.index)
 
     if isinstance(result, pd.Series):
-        col = f"ti_{col_name}"
+        col = f"{prefix}{col_name}"
         df[col] = result
     elif isinstance(result, pd.DataFrame):
         # Prefix columns with 'ti_'
-        result.columns = [f"ti_{col}" for col in result.columns]
+        result.columns = [f"{prefix}{col}" for col in result.columns]
         df = df.join(result)
     else:
         raise TypeError("Indicator function must return a Series or DataFrame")
@@ -51,9 +52,10 @@ def add_technical_indicators(
     vol_col: str = "vol",
     permno_idx: str = "permno",
     date_idx: str = "date",
+    prefix: str = 'ti_',
     # Params
-    rsi_periods: list[int] = [14, 28],
-    atr_periods: list[int] = [14, 20, 30],
+    rsi_periods: list[int] = [14],
+    atr_periods: list[int] = [14, 7],
     macd_fast: int = 12,
     macd_slow: int = 26,
     macd_signal: int = 9,
@@ -106,14 +108,14 @@ def add_technical_indicators(
     # RSI
     for period in rsi_periods:
         rsi_result = gb[close_col].apply(lambda x: ta.rsi(x, length=period))
-        out = _join_ind_result_to_out(out, rsi_result, col_name=f"rsi_{period}")
+        out = _join_ind_result_to_out(out, rsi_result, col_name=f"rsi_{period}",prefix=prefix)
 
     # ATR
     for period in atr_periods:
         atr_result = gb.apply(
             lambda g: ta.atr(high=g[high_col], low=g[low_col], close=g[close_col], length=period)
         )
-        out = _join_ind_result_to_out(out, atr_result, col_name=f"atr_{period}")
+        out = _join_ind_result_to_out(out, atr_result, col_name=f"atr_{period}",prefix=prefix)
 
     # MACD - only keep the main MACD line (12, 26, 9)
     macd_result = gb.apply(
@@ -122,14 +124,14 @@ def add_technical_indicators(
         ]
     )
     out = _join_ind_result_to_out(
-        out, macd_result, col_name=f"MACD_{macd_fast}_{macd_slow}_{macd_signal}"
+        out, macd_result, col_name=f"MACD_{macd_fast}_{macd_slow}_{macd_signal}",prefix=prefix
     )
 
     # Bollinger Bands - only keep the percent B (position within bands)
     bb_result = gb[close_col].apply(
         lambda x: ta.bbands(x, length=bb_period, std=bb_std)[f"BBP_{bb_period}_{bb_std}"]
     )
-    out = _join_ind_result_to_out(out, bb_result, col_name=f"bb_percent_{bb_period}_{int(bb_std)}")
+    out = _join_ind_result_to_out(out, bb_result, col_name=f"bb_percent_{bb_period}_{int(bb_std)}",prefix=prefix)
 
     for length in mfi_periods:
         mfi_result = gb.apply(
@@ -141,7 +143,7 @@ def add_technical_indicators(
                 length=length,
             )
         )
-        out = _join_ind_result_to_out(out, mfi_result, col_name=f"mfi_{length}")
+        out = _join_ind_result_to_out(out, mfi_result, col_name=f"mfi_{length}",prefix=prefix)
 
     # ADX (Average Directional Index) - returns DataFrame, extract ADX column only
     for length in adx_periods:
@@ -150,7 +152,7 @@ def add_technical_indicators(
                 f"ADX_{length}"
             ]
         )
-        out = _join_ind_result_to_out(out, adx_result, col_name=f"adx_{length}")
+        out = _join_ind_result_to_out(out, adx_result, col_name=f"adx_{length}",prefix=prefix)
 
     # PSAR (Parabolic SAR) - returns DataFrame, extract acceleration factor column
     psar_af_col = f"PSARaf_{psar_step}_{psar_max}"
@@ -159,7 +161,7 @@ def add_technical_indicators(
             high=g[high_col], low=g[low_col], close=g[close_col], step=psar_step, max=psar_max
         )[psar_af_col]
     )
-    out = _join_ind_result_to_out(out, psar_result, col_name="psar_acc")
+    out = _join_ind_result_to_out(out, psar_result, col_name="psar_acc",prefix=prefix)
 
     # CMF (Chaikin Money Flow) - returns Series
     for length in cmf_periods:
@@ -173,7 +175,7 @@ def add_technical_indicators(
                 length=length,
             )
         )
-        out = _join_ind_result_to_out(out, cmf_result, col_name=f"cmf_{length}")
+        out = _join_ind_result_to_out(out, cmf_result, col_name=f"cmf_{length}",prefix=prefix)
 
     # EOM (Ease of Movement)
     for length in eom_periods:
@@ -186,12 +188,12 @@ def add_technical_indicators(
                 length=length,
             )
         )
-        out = _join_ind_result_to_out(out, eom_result, col_name=f"eom_{length}")
+        out = _join_ind_result_to_out(out, eom_result, col_name=f"eom_{length}",prefix=prefix)
 
     # Variance
     for length in variance_periods:
         variance_result = gb[close_col].apply(lambda x: ta.variance(x, length=length))
-        out = _join_ind_result_to_out(out, variance_result, col_name=f"variance_{length}")
+        out = _join_ind_result_to_out(out, variance_result, col_name=f"variance_{length}",prefix=prefix)
 
     # Stochastic Oscillator - returns DataFrame, extract STOCHk column only
     stoch_k_col = f"STOCHk_{stoch_k}_{stoch_d}_{stoch_smooth}"
@@ -206,18 +208,18 @@ def add_technical_indicators(
         )[stoch_k_col]
     )
     out = _join_ind_result_to_out(
-        out, stoch_result, col_name=f"stoch_k_{stoch_k}_{stoch_d}_{stoch_smooth}"
+        out, stoch_result, col_name=f"stoch_k_{stoch_k}_{stoch_d}_{stoch_smooth}",prefix=prefix
     )
 
     # Skewness
     for length in skew_periods:
         skew_result = gb[close_col].apply(lambda x: ta.skew(x, length=length))
-        out = _join_ind_result_to_out(out, skew_result, col_name=f"skew_{length}")
+        out = _join_ind_result_to_out(out, skew_result, col_name=f"skew_{length}",prefix=prefix)
 
     # Kurtosis
     for length in kurtosis_periods:
         kurtosis_result = gb[close_col].apply(lambda x: ta.kurtosis(x, length=length))
-        out = _join_ind_result_to_out(out, kurtosis_result, col_name=f"kurtosis_{length}")
+        out = _join_ind_result_to_out(out, kurtosis_result, col_name=f"kurtosis_{length}",prefix=prefix)
 
     # Aroon Oscillator - returns DataFrame, extract AROONOSC column only
     for length in aroon_periods:
@@ -225,6 +227,46 @@ def add_technical_indicators(
         aroon_result = gb.apply(
             lambda g: ta.aroon(high=g[high_col], low=g[low_col], length=length)[aroon_osc_col]
         )
-        out = _join_ind_result_to_out(out, aroon_result, col_name=f"aroon_osc_{length}")
+        out = _join_ind_result_to_out(out, aroon_result, col_name=f"aroon_osc_{length}",prefix=prefix)
 
+    return out
+
+
+
+def feature_augmentaion(df):
+    out=df.copy()
+    #1) add technical indicators on tickers 
+    out=add_technical_indicators(out)
+
+    #2) add technical indicators on common features (indexes and etfs)
+    # Collect base keys (like ^VIX, ^VXN, XLF, etc.) from columns starting with 'comm_'
+    comm_keys = set()
+    for col in df.columns:
+        if col.startswith('comm_'):
+            parts = col.split('_')
+            # Join together all parts between 'comm' and the last part (which is open/high/low/close/volume)
+            # Works for e.g. comm_^VIX_close or comm_XLF_volume
+            if len(parts) > 2:
+                key = '_'.join(parts[1:-1])
+                comm_keys.add(key)
+
+    for comm in sorted(comm_keys):
+        open_col   = f'comm_{comm}_open'
+        high_col   = f'comm_{comm}_high'
+        low_col    = f'comm_{comm}_low'
+        close_col  = f'comm_{comm}_close'
+        vol_col    = f'comm_{comm}_volume'
+        # Only call if all required columns are present
+        if all(col in df.columns for col in [open_col, high_col, low_col, close_col, vol_col]):
+            out=add_technical_indicators(
+                out,
+                open_col=open_col,
+                high_col=high_col,
+                low_col=low_col,
+                close_col=close_col,
+                vol_col=vol_col,
+                prefix=f"comm_ti_{comm}_"  # e.g., comm_ti_^VIX_
+            )
+    #removing columns that are all NaN (e.g. indexes dont have volume data so eom and cmf ouputs are all NaN)
+    out = out.dropna(axis=1, how='all')
     return out

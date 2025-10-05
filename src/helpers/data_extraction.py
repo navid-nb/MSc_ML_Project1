@@ -128,7 +128,6 @@ def wrds_extract_raw(
 
 
 def common_features_extract(
-    tickers: List[str],
     start_date: str,
     end_date: str,
     output_path: str = "data/yfinance.parquet"
@@ -137,6 +136,26 @@ def common_features_extract(
     Download daily data for given tickers from yfinance and save as Parquet.
     Keeps all columns with ticker-prefixed names (e.g., ^vix_Close).
     """
+    tickers = [
+        # Volatility Indexes
+            "^VIX",   # CBOE Volatility Index: 30-day expected volatility of the S&P 500 (market fear gauge)
+            "^VXN",   # CBOE NASDAQ-100 Volatility Index: 30-day expected volatility of the Nasdaq-100 (tech-heavy)
+            "^OVX",   # CBOE Crude Oil Volatility Index: 30-day expected volatility of WTI Crude Oil futures
+            "^GVZ",   # CBOE Gold Volatility Index: 30-day expected volatility of Gold futures
+
+        # Equity Indexes
+            "^GSPC",  # S&P 500: U.S. large-cap equity benchmark
+            "^IXIC",  # Nasdaq Composite: U.S. tech-heavy index
+            "^RUT",   # Russell 2000: U.S. small-cap index
+
+        # Sector ETFs (for sector rotation/flow signals)
+            "XLK",    # Technology
+            "XLF",    # Financials
+            "XLE",    # Energy
+            "XLV",    # Health Care
+            "XLI",    # Industrials
+        ]
+
     all_data = []
     
     for ticker in tickers:
