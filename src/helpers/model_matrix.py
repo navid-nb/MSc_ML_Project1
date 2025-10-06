@@ -507,12 +507,12 @@ def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFram
         lambda g: g.index.get_level_values("date").min()
     )
 
-    # Print the initial date for each ticker (permno) after 2016-06-01
-    print("First date for each ticker (after 2016-06-01):")
-    for permno, first_date in group_min_dates.items():
-        print(first_date)
-        if pd.to_datetime(first_date) > pd.Timestamp("2016-06-01"):
-            print(f"Ticker {permno}: {first_date}")
+    # # Print the initial date for each ticker (permno) after 2016-06-01
+    # print("First date for each ticker (after 2016-06-01):")
+    # for permno, first_date in group_min_dates.items():
+    #     print(first_date)
+    #     if pd.to_datetime(first_date) > pd.Timestamp("2016-06-01"):
+    #         print(f"Ticker {permno}: {first_date}")
 
     max_start_date = group_min_dates.max()
 

@@ -157,8 +157,8 @@ def common_features_extract(
             print(f"Warning: No data returned for {ticker}")
             continue
 
-        # Flatten MultiIndex columns: e.g. (Close, ^VIX) -> comm_^VIX_Close
-        data.columns = [f"comm_{col[1]}_{col[0]}" for col in data.columns]
+        # Flatten MultiIndex columns: e.g. (Close, ^VIX) -> comm_^VIX_close
+        data.columns = [f"comm_{col[1]}_{col[0].lower()}" for col in data.columns]
 
         data.index.name = "date"
         all_data.append(data)
