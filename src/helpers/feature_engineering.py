@@ -307,8 +307,7 @@ def add_lagged_columns(df: pd.DataFrame, lag_configs: dict) -> pd.DataFrame:
 
     return out
 
-
-def feature_augmentaion(df: pd.DataFrame) -> pd.DataFrame:
+def feature_augmentation(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     # ======================================================================================
     # 1) add technical indicators on tickers

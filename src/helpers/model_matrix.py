@@ -28,7 +28,7 @@ from src.helpers.data_cleanup import (
     prepare_ibes_for_daily_merge,
 )
 from src.helpers.data_extraction import common_features_extract, wrds_extract_raw
-from src.helpers.feature_engineering import build_final_matrix, feature_augmentaion
+from src.helpers.feature_engineering import build_final_matrix, feature_augmentation
 
 
 def _permno_level_number(df: pd.DataFrame) -> int | None:
@@ -433,8 +433,8 @@ def build_model_matrix_from_wrds(
     # print("$$$$ df_prices shape after forward_fill_and_remove_initial_nans: " , df_prices.shape)
 
     # feature_augmentation : adding technical indicators, ratios, lags ,...
-    df_prices = feature_augmentaion(df_prices)
-    df_prices = _remove_leading_nans(df_prices, remove_reason="after feature augmentaion")
+    df_prices = feature_augmentation(df_prices)
+    df_prices = _remove_leading_nans(df_prices, remove_reason="after feature augmentation")
     # print("$$$$ df_prices shape after dd_technical_indicators: " , df_prices.shape)
 
     # Final matrix
