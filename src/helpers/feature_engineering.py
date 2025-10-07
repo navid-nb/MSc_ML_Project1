@@ -309,7 +309,6 @@ def add_lagged_columns(df: pd.DataFrame, lag_configs: dict) -> pd.DataFrame:
 
 
 def feature_augmentaion(df: pd.DataFrame) -> pd.DataFrame:
-    df.to_csv("df.csv")
     out = df.copy()
     # ======================================================================================
     # 1) add technical indicators on tickers
@@ -418,7 +417,7 @@ def feature_augmentaion(df: pd.DataFrame) -> pd.DataFrame:
 
 def build_final_matrix(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Select and return only the features to be used in the ML model.
+    Select and return only the features we want to be used in the ML model.
 
     Removes:
     - Raw price, volume, OHLC columns

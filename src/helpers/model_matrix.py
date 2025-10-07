@@ -426,13 +426,13 @@ def build_model_matrix_from_wrds(
 
     common_features = pd.read_parquet(os.path.join(res["run_folder"], "common_features.parquet"))
     df_prices = join_prices_with_common_features(df_prices, common_features)
-
+    
     # print("$$$$ df_prices shape after joining IBES act: " , df_prices.shape)
     # impute null using ffill
     df_prices = forward_fill_and_remove_initial_nans(df_prices, add_fill_source_columns=False)
     # print("$$$$ df_prices shape after forward_fill_and_remove_initial_nans: " , df_prices.shape)
 
-    # Technical indicators
+    # feature_augmentation : adding technical indicators, ratios, lags ,...
     df_prices = feature_augmentaion(df_prices)
     df_prices = _remove_leading_nans(df_prices, remove_reason="after feature augmentaion")
     # print("$$$$ df_prices shape after dd_technical_indicators: " , df_prices.shape)
