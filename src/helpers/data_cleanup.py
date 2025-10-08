@@ -1123,3 +1123,26 @@ def filter_by_tickers(df_input: pd.DataFrame, df_companies_to_keep: pd.DataFrame
         filtered_df = df_input
 
     return filtered_df
+
+
+def join_prices_with_common_features(
+    df_prices: pd.DataFrame, features_df: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Join yfinance macro data (VIX, sector ETFs, indexes) to df_prices by date.
+    Broadcasts global features to every permno on each date.
+    """
+
+    features_df["date"] = pd.to_datetime(features_df["date"])
+    features_df = features_df.set_index("date")
+
+    # Reset df_prices to merge
+    df = df_prices.reset_index()
+
+    # Merge on date (broadcasts yfinance data to all permno)
+    df = df.merge(features_df, on="date", how="left")
+
+    # Rebuild MultiIndex
+    df = df.set_index(["permno", "date"])
+
+    return df
