@@ -375,6 +375,10 @@ def feature_augmentation(df: pd.DataFrame) -> pd.DataFrame:
     # Avoid division by zero (rare, but possible if SPX unchanged)
     out["ratio_beta_proxy"] = out["adj_prc_logret"] / (out["comm_^GSPC_close_logret"] + 1e-8)
 
+    # add anualized volatility (20-trading days)
+    out["anualized_volatility_20d"] = out.groupby(level="permno")["adj_prc_logret"] \
+        .transform(lambda s: s.rolling(20, min_periods=max(1, 20 // 2)).std() * np.sqrt(252))
+
     # ======================================================================================
     # 5) ADD lagged columns
     # ======================================================================================
@@ -406,7 +410,7 @@ def feature_augmentation(df: pd.DataFrame) -> pd.DataFrame:
     # ======================================================================================
     # 5) ADD lead returns (Target Columns)
     # ======================================================================================
-    lead_periods = [1, 5]  # to forcast 1-day and 5-day(weekly) returns
+    lead_periods = [1]  # to forcast 1-day and 5-day(weekly) returns
     for period in lead_periods:
         lead_col = f"adj_prc_logret_lead{period}"
         out[lead_col] = out.groupby(level="permno")["adj_prc_logret"].shift(-period)
