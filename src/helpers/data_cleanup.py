@@ -415,12 +415,6 @@ def clean_dsf(dsf: pd.DataFrame) -> pd.DataFrame:
     out = _handle_zero_cfa_factors(out, grouper)
     out = _handle_negative_price(out, grouper, max_neg_price_pct=0.01)
 
-    # Recompute adjusted fields
-    out["adj_prc"] = out["prc"] * out["cfacpr"]
-    if "shrout" in out.columns:
-        out["adj_shrout"] = out["shrout"] * out["cfacshr"]
-        out["adj_mktcap"] = out["adj_prc"].abs() * out["adj_shrout"]
-
     return out
 
 
