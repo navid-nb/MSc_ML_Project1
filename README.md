@@ -25,7 +25,6 @@ python version is supported).
 ## Quick Start (no venv activation needed)
 
 > Before you start: Check your Python version by running `python3 --version`.
-> It must be between 3.10 and 3.13 (inclusive). Otherwise, install a supported version before proceeding.
 
 Navigate to project root directory and run:
 
