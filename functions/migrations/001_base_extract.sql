@@ -16,9 +16,13 @@ SELECT cusip,                                                -- 8-digit CUSIP id
        numtrd,                                               -- number of trades (Nasdaq only)
        retx,                                                 -- daily return (excluding dividends)
        -- manual derivations
-       abs(prc) / NULLIF(cfacpr, 0)           AS adj_prc,    -- adjusted close price (split/dividend adjusted)
-       shrout * cfacshr                       AS adj_shrout, -- adjusted shares outstanding (useful for adj. market cap)
-       abs(prc) / NULLIF(cfacpr, 0) * (shrout * cfacshr) AS adj_mktcap  -- adjusted market cap
+       abs(prc) / NULLIF(cfacpr, 0)                         AS adj_prc,         -- adjusted close price (split/dividend adjusted)
+       abs(bidlo) / NULLIF(cfacpr, 0)                       AS adj_bidlo,       -- adjusted bid/low price
+       abs(askhi) / NULLIF(cfacpr, 0)                       AS adj_askhi,       -- adjusted ask/high price
+       abs(openprc) / NULLIF(cfacpr, 0)                     AS adj_openprc,     -- adjusted open price
+       vol * cfacshr                                        AS adj_vol,         -- adjusted volume
+       shrout * cfacshr                                     AS adj_shrout,      -- adjusted shares outstanding (useful for adj. market cap)
+       abs(prc) / NULLIF(cfacpr, 0) * (shrout * cfacshr)    AS adj_mktcap       -- adjusted market cap
 FROM crsp.dsf
 WHERE "date" >= %(start)s::date
   AND "date" <  %(end)s::date;
