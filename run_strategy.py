@@ -56,7 +56,16 @@ warnings.filterwarnings(
 # =============================================================
 
 tickers_list = [
-    "AAPL", "NVDA", "MSFT", "AMZN", "TSLA", "GOOGL", "LLY", "WMT", "JPM", "BRK-B",
+    "AAPL",
+    "NVDA",
+    "MSFT",
+    "AMZN",
+    "TSLA",
+    "GOOGL",
+    "LLY",
+    "WMT",
+    "JPM",
+    "BRK-B",
     #'V', 'MA', 'XOM', 'ORCL', 'UNH', 'COST', 'PG', 'HD', 'NFLX',
     #'JNJ', 'BAC', 'CRM', 'QQQ', 'ABBV', 'KO', 'CVX', 'TMUS', 'MRK', 'CSCO',
     #'WFC', 'ACN', 'NOW', 'TSM', 'AXP', 'PEP', 'MCD', 'IBM', 'MS', 'DIS',

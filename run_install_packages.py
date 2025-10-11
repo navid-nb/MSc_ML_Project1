@@ -1,4 +1,5 @@
 import argparse
+import os
 import platform
 import shutil
 import subprocess
@@ -10,9 +11,75 @@ REQUIRED = (3, 10)  # enforce Python 3.10.*
 ROOT = Path(__file__).resolve().parent
 
 
-def sh(cmd: list[str]) -> None:
+def sh(cmd: list[str], env: dict | None = None) -> None:
     print("$ " + " ".join(str(c) for c in cmd))
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, env=env)
+
+
+def install_offline(py: Path) -> None:
+    wheels = ROOT / "wheels"
+    req = ROOT / "requirements.txt"
+    if not req.exists():
+        raise FileNotFoundError("requirements.txt not found. Run tools/bundle_offline.py first.")
+    if not wheels.exists():
+        raise FileNotFoundError("wheels/ not found. Cannot install offline.")
+
+    # Make pip fully offline & quiet about version checks
+    offline_env = os.environ.copy()
+    offline_env.update(
+        {
+            "PIP_NO_INDEX": "1",
+            "PIP_FIND_LINKS": str(wheels.resolve()),
+            "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+        }
+    )
+
+    print("Installing (offline, from ./wheels) ...")
+
+    # OPTIONAL: upgrade pip/setuptools/wheel **from local wheels only** if present
+    has_pip = any(wheels.glob("pip-*.whl"))
+    has_setuptools = any(wheels.glob("setuptools-*.whl"))
+    has_wheel = any(wheels.glob("wheel-*.whl"))
+    if has_pip and has_setuptools and has_wheel:
+        sh(
+            [
+                str(py),
+                "-m",
+                "pip",
+                "install",
+                "--no-index",
+                "--find-links",
+                str(wheels),
+                "--only-binary",
+                ":all:",
+                "--upgrade",
+                "pip",
+                "setuptools",
+                "wheel",
+            ],
+            env=offline_env,
+        )
+    else:
+        print("No local wheels for pip/setuptools/wheel; skipping their upgrade in offline mode.")
+
+    # Install deps strictly from ./wheels
+    sh(
+        [
+            str(py),
+            "-m",
+            "pip",
+            "install",
+            "--no-index",
+            "--find-links",
+            str(wheels),
+            "--only-binary",
+            ":all:",
+            "--no-build-isolation",
+            "-r",
+            str(req),
+        ],
+        env=offline_env,
+    )
 
 
 def get_version_and_exe(cmd: list[str]) -> tuple[tuple[int, int, int] | None, Path | None]:
@@ -113,17 +180,6 @@ def find_python310(user_python: str | None) -> Path:
 
 def venv_python(venv_dir: Path) -> Path:
     return venv_dir / ("Scripts/python.exe" if platform.system() == "Windows" else "bin/python")
-
-
-def install_offline(py: Path) -> None:
-    req = ROOT / "requirements.txt"
-    if not req.exists():
-        raise FileNotFoundError("requirements.txt not found. Run tools/bundle_offline.py first.")
-    print("Installing (offline, from ./wheels) ...")
-    sh([str(py), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
-    sh(
-        [str(py), "-m", "pip", "install", "-r", str(req)]
-    )  # requirements.txt sets --no-index/--find-links
 
 
 def install_online(py: Path) -> None:
