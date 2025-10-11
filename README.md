@@ -15,7 +15,7 @@ python version is supported).
 
 ## What's Included (offline bundle)
 - `wheels/`: prebuilt Python wheels for offline install  
-- `requirements.lock` + `requirements.txt`: pinned to the included wheels  
+- `requirements.lock` + `requirements[*].txt`: pinned to the included wheels  
 - `data/`: Parquet snapshot (WRDS/YFinance) ready to use  
 - `run_install_packages.py`: creates venv and installs from `wheels/`  
 - `run_data.py`: prepares/validates data using the snapshot  
