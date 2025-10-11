@@ -10,6 +10,8 @@ python version is supported).
   windows or using homebrew on MacOS. On Mac, run `brew search python` 
   and then run `brew update` and `brew install python@3.10` (3.11, 3.12, 
   3.13 are also supported).
+- Supports x86-64 and ARM (i.e. M1 Mac, Intel Mac, and Windows).
+- GPU is not needed.
 
 ## What's Included (offline bundle)
 - `wheels/`: prebuilt Python wheels for offline install  
