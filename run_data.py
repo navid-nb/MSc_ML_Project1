@@ -561,7 +561,9 @@ def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFram
     return filled_df
 
 
-# Extract all ticker data from WRDS (the WRDS filter is only date range).
+# Extract all stock data from WRDS for a predefined list of ~70 high-performing tickers.
+# These ~70 tickers do not represent the entire market universe; they are intentionally
+# limited to avoid downloading thousands of irrelevant securities.
 # By extracting broadly, tickers_list can be updated later without reconnecting.
 # Data sources: DSF, CRSP, Fama-French, IBES (see functions/migrations).
 raw_data = wrds_extract_raw(
