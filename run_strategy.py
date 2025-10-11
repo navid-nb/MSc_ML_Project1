@@ -128,10 +128,10 @@ DIR_binary = (df["adj_prc_logret_lead1"] > 0).astype(int)  # 1 = up, 0 = down
 # Check class balance (market neutrality ~ 50/50)
 print("\nBinary Target Distribution")
 print(
-    f" Up (1):   {(DIR_binary == 1).sum():,} observations ({(DIR_binary == 1).mean() * 100:.1f}%)"
+    f" Up (1):   {(DIR_binary == 1).sum():,} observations ({(DIR_binary == 1).mean() * 100:.1f}%)"  # noqa
 )  # noqa
 print(
-    f" Down (0): {(DIR_binary == 0).sum():,} observations ({(DIR_binary == 0).mean() * 100:.1f}%)"
+    f" Down (0): {(DIR_binary == 0).sum():,} observations ({(DIR_binary == 0).mean() * 100:.1f}%)"  # noqa
 )  # noqa
 print(f" Total:    {len(DIR_binary):,} observations")
 
