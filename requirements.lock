@@ -57,7 +57,7 @@ MarkupSafe==3.0.2
 matplotlib==3.10.6
 matplotlib-inline==0.1.7
 mistune==3.1.4
-multitasking==0.0.12
+multitasking==0.0.11
 nbclient==0.10.2
 nbconvert==7.16.6
 nbformat==5.10.4

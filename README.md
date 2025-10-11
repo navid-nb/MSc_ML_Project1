@@ -27,7 +27,7 @@ Navigate to project root directory and run:
 
 **macOS/Linux**
 ```bash
-python3 run_install_packages.py
+python3 run_install_packages.py --offline-only
 ./.venv/bin/python run_strategy.py
 ```
 
@@ -38,7 +38,7 @@ py -3 run_install_packages.py
 ```
 
 > Tip: If you have multiple Python versions installed, you can force one:
-> `python3 run_install_packages.py --python python3.10`  or  `py -3.10 run_install_packages.py --python py -3.10`
+> `python3 run_install_packages.py --offline-only --python python3.10`  or  `py -3.10 run_install_packages.py --python py -3.10`
 
 `run_strategy.py` will run the functions in `run_data` and populate the `data` folder 
 if no data is detected or if the user wants a new batch of data.
