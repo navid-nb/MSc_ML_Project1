@@ -1,9 +1,7 @@
 # MATH60610A Portfolio Backtesting (Quick Start)
 
-**Everything runs fully offline.** No internet is required to:
-- set up the virtual environment,
-- load WRDS & Yahoo Finance data (snapshot included),
-- run the backtest and generate outputs.
+**Everything runs fully offline.** No internet is required.
+You can disable your WiFi.
 
 ## Requirement
 - **Python 3.10 – 3.13**. The installer enforces this supported range.
