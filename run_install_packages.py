@@ -6,9 +6,24 @@ import subprocess
 import sys
 from pathlib import Path
 
-REQUIRED = (3, 10)  # enforce Python 3.10.*
+SUPPORTED_MIN = (3, 10)  # inclusive
+SUPPORTED_MAX = (3, 13)  # inclusive
 
 ROOT = Path(__file__).resolve().parent
+
+
+def in_supported_range(ver: tuple[int, int, int] | tuple[int, int]) -> bool:
+    maj, min_ = ver[0], ver[1]
+    return (
+        maj == 3
+        and SUPPORTED_MIN[1] <= min_ <= SUPPORTED_MAX[1]
+    )
+
+
+def version_str(ver: tuple[int, int, int] | None) -> str:
+    if not ver:
+        return "unknown"
+    return f"{ver[0]}.{ver[1]}.{ver[2]}"
 
 
 def sh(cmd: list[str], env: dict | None = None) -> None:
@@ -24,7 +39,7 @@ def install_offline(py: Path) -> None:
     if not wheels.exists():
         raise FileNotFoundError("wheels/ not found. Cannot install offline.")
 
-    # Make pip fully offline & quiet about version checks
+    # Make pip offline and quiet about version checks
     offline_env = os.environ.copy()
     offline_env.update(
         {
@@ -36,7 +51,7 @@ def install_offline(py: Path) -> None:
 
     print("Installing (offline, from ./wheels) ...")
 
-    # OPTIONAL: upgrade pip/setuptools/wheel **from local wheels only** if present
+    # upgrade pip/setuptools/wheel from local wheels if present
     has_pip = any(wheels.glob("pip-*.whl"))
     has_setuptools = any(wheels.glob("setuptools-*.whl"))
     has_wheel = any(wheels.glob("wheel-*.whl"))
@@ -62,7 +77,7 @@ def install_offline(py: Path) -> None:
     else:
         print("No local wheels for pip/setuptools/wheel; skipping their upgrade in offline mode.")
 
-    # Install deps strictly from ./wheels
+    # install deps from ./wheels
     sh(
         [
             str(py),
@@ -92,7 +107,9 @@ def get_version_and_exe(cmd: list[str]) -> tuple[tuple[int, int, int] | None, Pa
                 cmd
                 + [
                     "-c",
-                    "import sys; print(sys.version_info[0],sys.version_info[1],sys.version_info[2]); print(sys.executable)",
+                    "import sys; "
+                    "print(sys.version_info[0],sys.version_info[1],sys.version_info[2]); "
+                    "print(sys.executable)",
                 ],
                 text=True,
             )
@@ -108,73 +125,73 @@ def get_version_and_exe(cmd: list[str]) -> tuple[tuple[int, int, int] | None, Pa
     return None, None
 
 
-def find_python310(user_python: str | None) -> Path:
+def find_supported_python(user_python: str | None) -> Path:
     """
-    Resolve a Python 3.10.* interpreter.
+    Resolve a Python 3.10–3.13 interpreter.
     Priority:
       1) --python (exact command/path)
-      2) current interpreter if 3.10.*
-      3) common launchers on this OS
+      2) current interpreter if in range
+      3) common launchers on this OS (tries 3.13, 3.12, 3.11, 3.10)
     """
     # 1) explicit
     if user_python:
         ver, exe = get_version_and_exe([user_python])
-        if ver and ver[0] == REQUIRED[0] and ver[1] == REQUIRED[1]:
+        if ver and in_supported_range(ver):
             return exe
         sys.exit(
-            f"[!] --python must point to Python {REQUIRED[0]}.{REQUIRED[1]}.*, "
-            f"but got {ver if ver else 'unresolvable'} from {user_python!r}"
+            f"[!] --python must point to Python {SUPPORTED_MIN[0]}.{SUPPORTED_MIN[1]}–{SUPPORTED_MAX[1]}.*, "
+            f"but got {version_str(ver)} from {user_python!r}"
         )
 
     # 2) current process
     cur = sys.version_info
-    if (cur.major, cur.minor) == REQUIRED:
+    if in_supported_range((cur.major, cur.minor, cur.micro)):
         return Path(sys.executable).resolve()
 
-    # 3) try common commands
+    # 3) try common commands for 3.13 -> 3.10
+    versions = [13, 12, 11, 10]
     candidates: list[list[str]] = []
+
     if platform.system() == "Windows":
-        candidates += [
-            ["py", "-3.10"],  # Windows py launcher
-            ["python3.10"],
-            ["python310"],
-            ["python"],
-        ]
+        for v in versions:
+            candidates.append(["py", f"-3.{v}"])
+        for v in versions:
+            candidates.append([f"python3.{v}"])
+            candidates.append([f"python3{v}"])
+            candidates.append([f"python{v}"])
+        candidates += [["python3"], ["python"]]
     else:
-        candidates += [
-            ["python3.10"],
-            ["python3"],
-            ["python"],
-        ]
+        for v in versions:
+            candidates.append([f"python3.{v}"])
+            candidates.append([f"python{v}"])
+        candidates += [["python3"], ["python"]]
 
     for cmd in candidates:
         ver, exe = get_version_and_exe(cmd)
-        if ver and ver[0] == REQUIRED[0] and ver[1] == REQUIRED[1]:
+        if ver and in_supported_range(ver):
             return exe
 
     # No suitable interpreter found
     msg = [
-        f"[!] Could not find Python {REQUIRED[0]}.{REQUIRED[1]}.* on this system.",
-        "Install it and rerun, or pass --python PATH/COMMAND.",
+        f"[!] Could not find a supported Python in range "
+        f"{SUPPORTED_MIN[0]}.{SUPPORTED_MIN[1]}–{SUPPORTED_MAX[1]}.* on this system.",
+        "Install one and rerun, or pass --python PATH/COMMAND.",
         "",
         "Hints:",
     ]
     if platform.system() == "Windows":
         msg += [
-            "  • Install Python 3.10 from python.org (ensure 'py' launcher installed).",
-            "  • Then this usually works:  py -3.10 run_install_packages.py",
+            "  • Install Python 3.10–3.13 from python.org (ensure 'py' launcher installed).",
+            "  • Then this usually works:  py -3 run_install_packages.py",
         ]
     elif platform.system() == "Darwin":
         msg += [
-            "  • Homebrew:  brew install python@3.10",
-            "  • Then run:  python3.10 run_install_packages.py",
+            "  • Homebrew:  brew install python@3.12  (or 3.10/3.11/3.13 as available)",
+            "  • Then run:  python3 run_install_packages.py",
         ]
     else:
-        msg += [
-            "  • Ubuntu/Debian (if available):  sudo apt-get install python3.10 python3.10-venv",
-            "  • Fedora:  sudo dnf install python3.10",
-            "  • Then run:  python3.10 run_install_packages.py",
-        ]
+        raise EnvironmentError("Only Windows and Darwin(MacOS) are supported.")
+
     sys.exit("\n".join(msg))
 
 
@@ -198,15 +215,19 @@ def main() -> None:
     p.add_argument("--venv", default=".venv")
     p.add_argument("--force-recreate", action="store_true")
     p.add_argument(
-        "--python", help="Command or path to a Python 3.10 interpreter to create the venv"
+        "--python",
+        help=(
+            f"Command or path to a Python {SUPPORTED_MIN[0]}.{SUPPORTED_MIN[1]}–{SUPPORTED_MAX[1]} "
+            f"interpreter to create the venv"
+        ),
     )
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--offline-only", action="store_true")
     mode.add_argument("--online-only", action="store_true")
     args = p.parse_args()
 
-    # Resolve a Python 3.10 interpreter
-    creator_py = find_python310(args.python)
+    # Resolve a supported Python interpreter
+    creator_py = find_supported_python(args.python)
     print(f"Using Python for venv creation: {creator_py}")
 
     venv_dir = (ROOT / args.venv).resolve()
@@ -234,7 +255,7 @@ def main() -> None:
                 raise FileNotFoundError("wheels/ not found for --offline-only")
             install_offline(py)
         else:
-            # AUTO: try offline first, then fall back
+            # try offline first, then fall back to online
             if wheels_dir.exists():
                 try:
                     install_offline(py)
@@ -248,7 +269,9 @@ def main() -> None:
     except Exception as e:
         sys.exit(f"[!] Installation failed: {e}")
 
-    print("\n Environment ready (Python 3.10).")
+    # Print the actual venv interpreter version
+    ver, _ = get_version_and_exe([str(py)])
+    print(f"\n Environment ready (Python {version_str(ver)} supported in [3.10.*, 3.13.*]).")
     print("Run WITHOUT activating the venv:")
     print(f"  {py} run_strategy.py")
 
