@@ -3,7 +3,7 @@ import os
 os.environ["PYTHONWARNINGS"] = "ignore:pkg_resources is deprecated as an API:UserWarning"
 
 import warnings
-from typing import Literal, Optional, Sequence, Dict, Any
+from typing import Any, Dict, Literal, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -12,8 +12,7 @@ from functions.helpers.data_cleanup import (
     clean_dsf,
     ensure_index,
     filter_by_tickers,
-    filter_tickers,
-    join_dsf_with_stocknames,
+    filter_by_tickers_and_permno_pairs,
     join_prices_with_common_features,
     join_prices_with_ff,
     join_prices_with_ibes,
@@ -22,14 +21,12 @@ from functions.helpers.data_cleanup import (
     post_join_qa_prices_with_ff,
     post_join_qa_prices_with_ibes,
     post_join_qa_prices_with_ibes_actu,
-    post_stockname_join_qa_cleaning,
     pre_qa_dsf,
     pre_qa_ff,
     pre_qa_ibes_actu,
     pre_qa_ibes_statsumu,
-    pre_qa_stocknames,
     prepare_ibes_actu_for_daily_merge,
-    prepare_ibes_for_daily_merge, filter_by_tickers_and_permno_pairs,
+    prepare_ibes_for_daily_merge,
 )
 from functions.helpers.data_extraction import wrds_extract_raw
 from functions.helpers.feature_engineering import (
@@ -354,7 +351,9 @@ def reindex_each_permno_to_global_calendar(
     return out
 
 
-def build_model_matrix_from_raw_data(raw_data: Dict[str, Any], tickers: list["str"]) -> pd.DataFrame:
+def build_model_matrix_from_raw_data(
+    raw_data: Dict[str, Any], tickers: list["str"]
+) -> pd.DataFrame:
     """
     Uses a given WRDS extraction to apply preprocessing, joins and quality checks,
     add technical indicators, and build the final modeling matrix.

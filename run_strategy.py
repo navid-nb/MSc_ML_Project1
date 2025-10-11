@@ -13,7 +13,10 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from functions.helpers.allocation_strategies import apply_allocation_strategy
-from functions.helpers.output_generation import generate_oos_report
+from functions.helpers.output_generation import (
+    generate_oos_report,
+    generate_oos_report_monthly,
+)
 from functions.helpers.portfolio_backtest import (
     backtest_strategy,
     calculate_equity_curve,
@@ -30,7 +33,16 @@ from run_data import build_model_matrix_from_raw_data, raw_data
 df = build_model_matrix_from_raw_data(
     raw_data=raw_data,
     tickers=[
-        "AAPL", "NVDA", "MSFT", "AMZN", "TSLA", "GOOGL", "LLY", "WMT", "JPM", "BRK-B",
+        "AAPL",
+        "NVDA",
+        "MSFT",
+        "AMZN",
+        "TSLA",
+        "GOOGL",
+        "LLY",
+        "WMT",
+        "JPM",
+        "BRK-B",
         #'V', 'MA', 'XOM', 'ORCL', 'UNH', 'COST', 'PG', 'HD', 'NFLX',
         #'JNJ', 'BAC', 'CRM', 'QQQ', 'ABBV', 'KO', 'CVX', 'TMUS', 'MRK', 'CSCO',
         #'WFC', 'ACN', 'NOW', 'TSM', 'AXP', 'PEP', 'MCD', 'IBM', 'MS', 'DIS',
@@ -1321,7 +1333,7 @@ if SCORING_METHOD == "ALL":
 
 print("ALLOCATION STRATEGIES: Portfolio Weight Construction")
 
-# Allocation configuration (prints converted to comments where descriptive)
+# Allocation configuration
 ALLOCATION_STRATEGY = "A2"  # Options: "A1"-"A9", or "ALL"
 
 ALLOCATION_DESCRIPTIONS = {
@@ -2060,10 +2072,11 @@ print("   Results stored in: oos_result_optimal, oos_result_baseline")
 
 print("OUTPUT GENERATION: QuantStats HTML Reports")
 
-# Configuration (converted to comments where appropriate)
+# Configuration
 GENERATE_OPTIMAL_REPORT = True
 GENERATE_BASELINE_REPORT = False
 GENERATE_STANDARD_REPORT = False
+GENERATE_MONTHLY_REPORT = True
 OUTPUT_DIR = "outputs"
 
 # Check Required Variables
@@ -2089,10 +2102,10 @@ if missing_vars:
 
 print("\nAll required variables found!")
 
-# Generate Report for Optimal Strategy
+# Generate Report for Optimal Strategy (Daily)
 if GENERATE_OPTIMAL_REPORT:
     print("\n" + "=" * 80)
-    print("Generating Report: Optimal Strategy")
+    print("Generating Report: Optimal Strategy (Daily)")
     print("=" * 80)
 
     print("\nStrategy Details:")
@@ -2118,12 +2131,29 @@ if GENERATE_OPTIMAL_REPORT:
         output_dir=OUTPUT_DIR,
     )
 
-    print("\nOptimal strategy report generated.")
+    print("\nOptimal strategy report (daily) generated.")
 
-# Baseline Report (Optional)
+    # Monthly-aggregated report for the same strategy
+    if GENERATE_MONTHLY_REPORT:
+        output_path_optimal_m = os.path.join(OUTPUT_DIR, "oos_optimal_tearsheet_monthly.html")
+        report_title_optimal_m = (
+            f"OUT-OF-SAMPLE (Monthly): Optimal Strategy ({best_scoring} + {best_allocation})\n"
+            f"Period: {dates_out_sample.min().date()} to {dates_out_sample.max().date()}"
+        )
+        generate_oos_report_monthly(
+            portfolio_result=oos_result_optimal,
+            oos_df=oos_df,
+            dates_out_sample=dates_out_sample,
+            output_path=output_path_optimal_m,
+            report_title=report_title_optimal_m,
+            output_dir=OUTPUT_DIR,
+        )
+        print("Optimal strategy report (monthly) generated.")
+
+# Baseline Report (only daily)
 if GENERATE_BASELINE_REPORT:
     print("\n" + "=" * 80)
-    print("Generating Report: Baseline Strategy")
+    print("Generating Report: Baseline Strategy (Daily)")
     print("=" * 80)
 
     if "oos_result_baseline" not in locals() and "oos_result_baseline" not in globals():
@@ -2142,12 +2172,12 @@ if GENERATE_BASELINE_REPORT:
             report_title=report_title_baseline,
             output_dir=OUTPUT_DIR,
         )
-        print("\nBaseline report generated.")
+        print("\nBaseline report (daily) generated.")
 
-# Standard Approach Report (Optional)
+# Standard Approach Report (only daily)
 if GENERATE_STANDARD_REPORT:
     print("\n" + "=" * 80)
-    print("Generating Report: Standard Approach")
+    print("Generating Report: Standard Approach (Daily)")
     print("=" * 80)
 
     if "oos_result_standard" not in locals() and "oos_result_standard" not in globals():
@@ -2166,7 +2196,7 @@ if GENERATE_STANDARD_REPORT:
             report_title=report_title_standard,
             output_dir=OUTPUT_DIR,
         )
-        print("\nStandard approach report generated.")
+        print("\nStandard approach report (daily) generated.")
 
 # Final Summary
 print("\nSUMMARY: Output Generation Complete")
@@ -2176,16 +2206,25 @@ print("\n  Reports Generated:")
 reports_generated = []
 if GENERATE_OPTIMAL_REPORT:
     reports_generated.append(
-        ("oos_optimal_tearsheet.html", "Optimal Strategy", best_scoring, best_allocation)
+        ("oos_optimal_tearsheet.html", "Optimal Strategy (Daily)", best_scoring, best_allocation)
     )
+    if GENERATE_MONTHLY_REPORT:
+        reports_generated.append(
+            (
+                "oos_optimal_tearsheet_monthly.html",
+                "Optimal Strategy (Monthly)",
+                best_scoring,
+                best_allocation,
+            )
+        )
 if GENERATE_BASELINE_REPORT and (
     "oos_result_baseline" in locals() or "oos_result_baseline" in globals()
 ):
-    reports_generated.append(("oos_baseline_tearsheet.html", "Baseline", "S1", "A1"))
+    reports_generated.append(("oos_baseline_tearsheet.html", "Baseline (Daily)", "S1", "A1"))
 if GENERATE_STANDARD_REPORT and (
     "oos_result_standard" in locals() or "oos_result_standard" in globals()
 ):
-    reports_generated.append(("oos_standard_tearsheet.html", "Standard", "S2", "A2"))
+    reports_generated.append(("oos_standard_tearsheet.html", "Standard (Daily)", "S2", "A2"))
 
 for i, (filename, label, scoring, allocation) in enumerate(reports_generated, 1):
     full_path = os.path.join(OUTPUT_DIR, filename)

@@ -1082,7 +1082,9 @@ def filter_tickers(stock_names: pd.DataFrame, tickers: list[str]) -> pd.DataFram
     return df
 
 
-def filter_by_tickers_and_permno_pairs(df_input: pd.DataFrame, df_companies_to_keep: pd.DataFrame) -> pd.DataFrame:
+def filter_by_tickers_and_permno_pairs(
+    df_input: pd.DataFrame, df_companies_to_keep: pd.DataFrame
+) -> pd.DataFrame:
     """
     Filter the input dataframe to keep only rows corresponding to companies present in the given companies dataframe.
 
