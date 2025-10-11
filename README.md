@@ -1,7 +1,8 @@
 # MATH60610A Portfolio Backtesting (Quick Start)
 
 **Everything runs fully offline.** No internet is required.
-You can disable your WiFi.
+You can disable your WiFi (assuming your pre-installed
+python version is supported).
 
 ## Requirement
 - **Python 3.10 – 3.13**. The installer enforces this supported range.
