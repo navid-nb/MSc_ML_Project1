@@ -3,7 +3,7 @@ import os
 os.environ["PYTHONWARNINGS"] = "ignore:pkg_resources is deprecated as an API:UserWarning"
 
 import warnings
-from typing import Literal, Optional, Sequence
+from typing import Literal, Optional, Sequence, Dict, Any
 
 import numpy as np
 import pandas as pd
@@ -354,7 +354,7 @@ def reindex_each_permno_to_global_calendar(
     return out
 
 
-def build_model_matrix_from_raw_data(raw_data, tickers: list["str"]) -> pd.DataFrame:
+def build_model_matrix_from_raw_data(raw_data: Dict[str, Any], tickers: list["str"]) -> pd.DataFrame:
     """
     Uses a given WRDS extraction to apply preprocessing, joins and quality checks,
     add technical indicators, and build the final modeling matrix.
