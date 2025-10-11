@@ -78,6 +78,15 @@ def wrds_extract_raw(
         if os.path.isfile(os.path.join(run_dir, parq))
     }
 
+    if use_run == "new":
+        common_features_extract(
+            start_date=start,
+            end_date=end,
+            output_path=os.path.join(run_dir, "common_features.parquet"),
+        )
+    else:
+        assert os.path.isfile(os.path.join(run_dir, "common_features.parquet"))
+
     return {
         "run_folder": run_dir,
         "reuse": reuse,

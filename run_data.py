@@ -1,4 +1,8 @@
 import os
+
+os.environ["PYTHONWARNINGS"] = "ignore:pkg_resources is deprecated as an API:UserWarning"
+
+import warnings
 from typing import Literal, Optional, Sequence
 
 import numpy as np
@@ -27,10 +31,30 @@ from functions.helpers.data_cleanup import (
     prepare_ibes_actu_for_daily_merge,
     prepare_ibes_for_daily_merge,
 )
-from functions.helpers.data_extraction import common_features_extract, wrds_extract_raw
+from functions.helpers.data_extraction import wrds_extract_raw
 from functions.helpers.feature_engineering import (
     build_final_matrix,
     feature_augmentation,
+)
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"pkg_resources is deprecated as an API\..*",
+    category=UserWarning,
+)
+
+warnings.filterwarnings(
+    "ignore",
+    message=r".*pkg_resources is deprecated as an API.*",
+    category=UserWarning,
+)
+
+warnings.filterwarnings("ignore", category=UserWarning, module=r"pkg_resources(\.|$)")
+
+warnings.filterwarnings(
+    "ignore",
+    message="Mean of empty slice",
+    category=RuntimeWarning,
 )
 
 
@@ -330,70 +354,36 @@ def reindex_each_permno_to_global_calendar(
     return out
 
 
-def build_model_matrix_from_wrds(
-    wrds_user: str,
-    start: str,
-    end: str,
-    chunk_size: int,
-    tickers: list["str"],
-    use_run: str,
-) -> pd.DataFrame:
+def build_model_matrix_from_raw_data(raw_data, tickers: list["str"]) -> pd.DataFrame:
     """
-    Perform a full WRDS extraction with configured SQL scripts, load data, apply preprocessing,
-    joins and quality checks, add technical indicators, and build the final modeling matrix.
+    Uses a given WRDS extraction to apply preprocessing, joins and quality checks,
+    add technical indicators, and build the final modeling matrix.
 
     Parameters:
-        wrds_user (str): WRDS username.
-        start (str): Extraction start date.
-        end (str): Extraction end date.
-        chunk_size (int): Chunk size for extraction.
+        raw_data (Dict[str, Any]): Raw data.
         tickers (list['str']): list of tickers to keep.
-        use_run (str): Run folder usage ('new', 'last', or explicit).
 
     Returns:
         pd.DataFrame: Final model matrix ready for predictive modeling.
     """
 
-    res = wrds_extract_raw(
-        wrds_user=wrds_user,
-        start=start,
-        end=end,
-        chunk_size=chunk_size,
-        use_run=use_run,
-        base_dir="data",
-        artifacts=[
-            ("functions/migrations/001_base_extract.sql", "dsf.parquet"),
-            ("functions/migrations/002_crsp_names.sql", "stocknames.parquet"),
-            ("functions/migrations/003_ff_factors.sql", "ff.parquet"),
-            ("functions/migrations/004_ibes_statsumu.sql", "ibes_stats.parquet"),
-            ("functions/migrations/005_ibes_actu.sql", "ibes_act.parquet"),
-        ],
-    )
-    print(res)
-    if use_run == "new":
-        common_features_extract(
-            start_date=start,
-            end_date=end,
-            output_path=os.path.join(res["run_folder"], "common_features.parquet"),
-        )
-    else:
-        assert os.path.isfile(os.path.join(res["run_folder"], "common_features.parquet"))
+    print(raw_data)
 
     # Load
-    stock_names = parquet_to_df(res["artifacts"], "stocknames.parquet")
+    stock_names = parquet_to_df(raw_data["artifacts"], "stocknames.parquet")
     df_filter = filter_tickers(stock_names, tickers)
     stock_names = filter_by_tickers(stock_names, df_filter)
 
-    dsf = parquet_to_df(res["artifacts"], "dsf.parquet")
+    dsf = parquet_to_df(raw_data["artifacts"], "dsf.parquet")
     dsf = filter_by_tickers(dsf, df_filter)
 
-    ff = parquet_to_df(res["artifacts"], "ff.parquet")
+    ff = parquet_to_df(raw_data["artifacts"], "ff.parquet")
     ff = filter_by_tickers(ff, df_filter)
 
-    ibes = parquet_to_df(res["artifacts"], "ibes_stats.parquet")
+    ibes = parquet_to_df(raw_data["artifacts"], "ibes_stats.parquet")
     ibes = filter_by_tickers(ibes, df_filter)
 
-    ibes_act = parquet_to_df(res["artifacts"], "ibes_act.parquet")
+    ibes_act = parquet_to_df(raw_data["artifacts"], "ibes_act.parquet")
     ibes_act = filter_by_tickers(ibes_act, df_filter)
 
     # Index & QA
@@ -427,7 +417,9 @@ def build_model_matrix_from_wrds(
     df_prices = join_prices_with_ibes_actu(df_prices, ibes_act_daily)
     post_join_qa_prices_with_ibes_actu(df_prices)
 
-    common_features = pd.read_parquet(os.path.join(res["run_folder"], "common_features.parquet"))
+    common_features = pd.read_parquet(
+        os.path.join(raw_data["run_folder"], "common_features.parquet")
+    )
     df_prices = join_prices_with_common_features(df_prices, common_features)
 
     # print("$$$$ df_prices shape after joining IBES act: " , df_prices.shape)
@@ -573,9 +565,27 @@ def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFram
     print(f"All groups have consistent date indices and {expected_len} rows each.")
 
     print(filled_df.shape)
-    print(
-        null_report(filled_df)
-    )  # Assuming null_report is defined elsewhere to show missing values info
+    print(null_report(filled_df))
     print(filled_df.index.names, filled_df.columns)
 
     return filled_df
+
+
+# Extract all ticker data from WRDS (the WRDS filter is only date range).
+# By extracting broadly, tickers_list can be updated later without reconnecting.
+# Data sources: DSF, CRSP, Fama-French, IBES (see functions/migrations).
+raw_data = wrds_extract_raw(
+    wrds_user="your-wrds-username",
+    start="2016-01-01",
+    end="2021-01-01",
+    chunk_size=500_000,
+    use_run="last",  # "new", "last", or a specific folder name (e.g. "run_20250914_133747"),
+    base_dir="data",
+    artifacts=[
+        ("functions/migrations/001_base_extract.sql", "dsf.parquet"),
+        ("functions/migrations/002_crsp_names.sql", "stocknames.parquet"),
+        ("functions/migrations/003_ff_factors.sql", "ff.parquet"),
+        ("functions/migrations/004_ibes_statsumu.sql", "ibes_stats.parquet"),
+        ("functions/migrations/005_ibes_actu.sql", "ibes_act.parquet"),
+    ],
+)

@@ -14,10 +14,7 @@ ROOT = Path(__file__).resolve().parent
 
 def in_supported_range(ver: tuple[int, int, int] | tuple[int, int]) -> bool:
     maj, min_ = ver[0], ver[1]
-    return (
-        maj == 3
-        and SUPPORTED_MIN[1] <= min_ <= SUPPORTED_MAX[1]
-    )
+    return maj == 3 and SUPPORTED_MIN[1] <= min_ <= SUPPORTED_MAX[1]
 
 
 def version_str(ver: tuple[int, int, int] | None) -> str:

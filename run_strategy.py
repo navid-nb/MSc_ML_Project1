@@ -1,13 +1,5 @@
-# =============================================================
-# 0. Imports
-# =============================================================
-
 import os
-
-os.environ["PYTHONWARNINGS"] = "ignore:pkg_resources is deprecated as an API:UserWarning"
-
 import time
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -29,63 +21,34 @@ from functions.helpers.portfolio_backtest import (
     calculate_portfolio_returns,
 )
 from functions.helpers.split_window import split_rolling_window, split_train_and_test
-from run_data import build_model_matrix_from_wrds
-
-warnings.filterwarnings(
-    "ignore",
-    message=r"pkg_resources is deprecated as an API\..*",
-    category=UserWarning,
-)
-
-warnings.filterwarnings(
-    "ignore",
-    message=r".*pkg_resources is deprecated as an API.*",
-    category=UserWarning,
-)
-
-warnings.filterwarnings("ignore", category=UserWarning, module=r"pkg_resources(\.|$)")
-
-warnings.filterwarnings(
-    "ignore",
-    message="Mean of empty slice",
-    category=RuntimeWarning,
-)
+from run_data import build_model_matrix_from_raw_data, raw_data
 
 # =============================================================
 # 1. Data build & cleaning (CRSP/DSF/IBES/FF)
 # =============================================================
 
-tickers_list = [
-    "AAPL",
-    "NVDA",
-    "MSFT",
-    "AMZN",
-    "TSLA",
-    "GOOGL",
-    "LLY",
-    "WMT",
-    "JPM",
-    "BRK-B",
-    #'V', 'MA', 'XOM', 'ORCL', 'UNH', 'COST', 'PG', 'HD', 'NFLX',
-    #'JNJ', 'BAC', 'CRM', 'QQQ', 'ABBV', 'KO', 'CVX', 'TMUS', 'MRK', 'CSCO',
-    #'WFC', 'ACN', 'NOW', 'TSM', 'AXP', 'PEP', 'MCD', 'IBM', 'MS', 'DIS',
-    #'TMO', 'ABT', 'AMD', 'ADBE', 'PM', 'ISRG', 'GE', 'GS', 'INTU', 'CAT',
-    #'TXN', 'QCOM', 'RY', 'VZ', 'DHR', 'BKNG', 'T', 'BLK', 'SPGI',
-    #'RTX', 'PFE', 'NEE', 'HON', 'CMCSA', 'PGR', 'AMGN', 'LOW', 'ANET', 'UNP',
-    #'SYK', 'TJX', 'C', 'BA', 'SCHW', 'BSX', 'KKR', 'ETN',
-    #'COP', 'BX', 'PANW', 'ADP'
-]
-
-# Extract all needed ticker data from WRDS (the WRDS filter is only date range).
-# By extracting broadly, tickers_list can be updated later without reconnecting.
-# Data sources: DSF, CRSP, Fama-French, IBES (see functions/migrations).
-df = build_model_matrix_from_wrds(
-    wrds_user="your-wrds-username",
-    start="2016-01-01",
-    end="2021-01-01",
-    chunk_size=500_000,
-    tickers=tickers_list,
-    use_run="last",  # "new", "last", or a specific folder name (e.g. "run_20250914_133747")
+df = build_model_matrix_from_raw_data(
+    raw_data=raw_data,
+    tickers=[
+        "AAPL",
+        "NVDA",
+        "MSFT",
+        "AMZN",
+        "TSLA",
+        "GOOGL",
+        "LLY",
+        "WMT",
+        "JPM",
+        "BRK-B",
+        #'V', 'MA', 'XOM', 'ORCL', 'UNH', 'COST', 'PG', 'HD', 'NFLX',
+        #'JNJ', 'BAC', 'CRM', 'QQQ', 'ABBV', 'KO', 'CVX', 'TMUS', 'MRK', 'CSCO',
+        #'WFC', 'ACN', 'NOW', 'TSM', 'AXP', 'PEP', 'MCD', 'IBM', 'MS', 'DIS',
+        #'TMO', 'ABT', 'AMD', 'ADBE', 'PM', 'ISRG', 'GE', 'GS', 'INTU', 'CAT',
+        #'TXN', 'QCOM', 'RY', 'VZ', 'DHR', 'BKNG', 'T', 'BLK', 'SPGI',
+        #'RTX', 'PFE', 'NEE', 'HON', 'CMCSA', 'PGR', 'AMGN', 'LOW', 'ANET', 'UNP',
+        #'SYK', 'TJX', 'C', 'BA', 'SCHW', 'BSX', 'KKR', 'ETN',
+        #'COP', 'BX', 'PANW', 'ADP'
+    ],
 )
 
 # =============================================================
