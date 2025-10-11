@@ -1,22 +1,35 @@
-# MATH60610A-portfolio-backtesting
+# MATH60610A Portfolio Backtesting (Quick Start)
 
-## Installation
+**Everything runs fully offline.** No internet is required to:
+- set up the virtual environment,
+- load WRDS & Yahoo Finance data (snapshot included),
+- run the backtest and generate outputs.
 
-Clone the repo. Create a virtual python environment `venv` and run
+## Requirement
+- **Python 3.10.\*** (e.g., 3.10.14). The installer enforces 3.10.
 
+## What’s Included (offline bundle)
+- `wheels/`: prebuilt Python wheels for offline install  
+- `requirements.lock` + `requirements.txt`: pinned to the included wheels  
+- `data/`: Parquet snapshot (WRDS/YFinance) ready to use  
+- `run_install_packages.py`: creates venv and installs from `wheels/`  
+- `run_data.py`: prepares/validates data using the snapshot  
+- `run_strategy.py`: runs the backtest and writes to `outputs/`  
+- `functions/`, `outputs/`, `docs/`: code, results, and documentation
+
+## Quick Start (no venv activation needed)
+
+**macOS/Linux**
 ```bash
-pip install -r requirements.txt
+python3.10 run_install_packages.py
+./.venv/bin/python run_strategy.py
 ```
 
-Data already exists. You can "Run all" in `main.ipynb` to train the strategy. Equity curves and statistics are found in
-`main.ipynb` and in `out/yats_tearsheet.html` which is can be opened with your browser.
-
-## Useful commands
-
-```bash
-pre-commit run --all-files
+**Windows (PowerShell or CMD)**
+```shell
+py -3.10 run_install_packages.py
+.\.venv\Scripts\python.exe run_strategy.py
 ```
 
-```bash
-git ls-files | grep -vE '\.(parquet|html)$' | xargs cat | wc -l
-```
+`run_strategy.py` will run the functions in `run_data` and populate the `data` folder 
+if no data is detected or if the user wants a new batch of data.
