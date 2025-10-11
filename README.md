@@ -62,14 +62,12 @@ optional online steps at the end (requires valid WRDS access and internet).
 **WRDS (via HEC's WRDS license):**
 - **CRSP – Daily Stock File (`crsp.dsf`)** -> `dsf.parquet`  
   Extracted by `functions/migrations/001_base_extract.sql`.
-- **CRSP – Stock Names (`crsp.stocknames`)** -> `stocknames.parquet`  
-  Extracted by `functions/migrations/002_crsp_names.sql`.
 - **Fama–French Daily Factors (`ff.factors_daily`)** -> `ff.parquet`  
-  Extracted by `functions/migrations/003_ff_factors.sql`.
+  Extracted by `functions/migrations/002_ff_factors.sql`.
 - **IBES – U.S. EPS Consensus (statsumu) (`ibes.statsumu_epsus`)** -> `ibes_stats.parquet`  
-  Extracted by `functions/migrations/004_ibes_statsumu.sql`.
+  Extracted by `functions/migrations/003_ibes_statsumu.sql`.
 - **IBES – U.S. EPS Actuals (`ibes.actu_epsus`)** -> `ibes_act.parquet`  
-  Extracted by `functions/migrations/005_ibes_actu.sql`.
+  Extracted by `functions/migrations/004_ibes_actu.sql`.
 
 **Yahoo Finance (via `yfinance`):**
 - **Macro & market context:** `^VIX, ^VXN, ^OVX, ^GVZ, ^GSPC, ^IXIC, ^RUT, XLK, XLF, XLE, XLV, XLI`  

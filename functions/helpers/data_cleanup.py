@@ -1082,7 +1082,7 @@ def filter_tickers(stock_names: pd.DataFrame, tickers: list[str]) -> pd.DataFram
     return df
 
 
-def filter_by_tickers(df_input: pd.DataFrame, df_companies_to_keep: pd.DataFrame) -> pd.DataFrame:
+def filter_by_tickers_and_permno_pairs(df_input: pd.DataFrame, df_companies_to_keep: pd.DataFrame) -> pd.DataFrame:
     """
     Filter the input dataframe to keep only rows corresponding to companies present in the given companies dataframe.
 
@@ -1142,3 +1142,22 @@ def join_prices_with_common_features(
     df = df.set_index(["permno", "date"])
 
     return df
+
+
+def filter_by_tickers(df_input: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
+    """
+    Filter rows where df_input['ticker'] is in the provided iterable of tickers.
+
+    Parameters
+    ----------
+    df_input : pd.DataFrame
+        Input DataFrame that must contain a 'ticker' column.
+    tickers : list[str]
+        Collection of tickers to keep (exact matches).
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered DataFrame with rows whose 'ticker' is in `tickers`.
+    """
+    return df_input[df_input["ticker"].isin(set(tickers))].copy()

@@ -29,7 +29,7 @@ from functions.helpers.data_cleanup import (
     pre_qa_ibes_statsumu,
     pre_qa_stocknames,
     prepare_ibes_actu_for_daily_merge,
-    prepare_ibes_for_daily_merge,
+    prepare_ibes_for_daily_merge, filter_by_tickers_and_permno_pairs,
 )
 from functions.helpers.data_extraction import wrds_extract_raw
 from functions.helpers.feature_engineering import (
@@ -370,37 +370,28 @@ def build_model_matrix_from_raw_data(raw_data: Dict[str, Any], tickers: list["st
     print(raw_data)
 
     # Load
-    stock_names = parquet_to_df(raw_data["artifacts"], "stocknames.parquet")
-    df_filter = filter_tickers(stock_names, tickers)
-    stock_names = filter_by_tickers(stock_names, df_filter)
-
     dsf = parquet_to_df(raw_data["artifacts"], "dsf.parquet")
-    dsf = filter_by_tickers(dsf, df_filter)
+    dsf = filter_by_tickers(dsf, tickers)
 
     ff = parquet_to_df(raw_data["artifacts"], "ff.parquet")
-    ff = filter_by_tickers(ff, df_filter)
+    ff = filter_by_tickers_and_permno_pairs(ff, dsf)
 
     ibes = parquet_to_df(raw_data["artifacts"], "ibes_stats.parquet")
-    ibes = filter_by_tickers(ibes, df_filter)
+    ibes = filter_by_tickers_and_permno_pairs(ibes, dsf)
 
     ibes_act = parquet_to_df(raw_data["artifacts"], "ibes_act.parquet")
-    ibes_act = filter_by_tickers(ibes_act, df_filter)
+    ibes_act = filter_by_tickers_and_permno_pairs(ibes_act, dsf)
 
     # Index & QA
     dsf = ensure_index(dsf, ["permno", "date"], keep_cols=False)
     pre_qa_dsf(dsf)
     dsf = clean_dsf(dsf)
 
-    # adding stock_names
-    pre_qa_stocknames(stock_names)
-    df_prices = join_dsf_with_stocknames(dsf, stock_names)
-    df_prices = ensure_index(df_prices, ["permno", "date"], keep_cols=False)
-    df_prices = post_stockname_join_qa_cleaning(df_prices, remove_unclean_permnos=True)
-    print("$$$$ df_prices initial shape : ", df_prices.shape)
+    print("$$$$ df_prices initial shape : ", dsf.shape)
 
     # adding FF
     pre_qa_ff(ff)
-    df_prices = join_prices_with_ff(df_prices, ff)
+    df_prices = join_prices_with_ff(dsf, ff)
     post_join_qa_prices_with_ff(df_prices)
     # print("$$$$ df_prices shape after joining FF: " , df_prices.shape)
 
@@ -583,9 +574,8 @@ raw_data = wrds_extract_raw(
     base_dir="data",
     artifacts=[
         ("functions/migrations/001_base_extract.sql", "dsf.parquet"),
-        ("functions/migrations/002_crsp_names.sql", "stocknames.parquet"),
-        ("functions/migrations/003_ff_factors.sql", "ff.parquet"),
-        ("functions/migrations/004_ibes_statsumu.sql", "ibes_stats.parquet"),
-        ("functions/migrations/005_ibes_actu.sql", "ibes_act.parquet"),
+        ("functions/migrations/002_ff_factors.sql", "ff.parquet"),
+        ("functions/migrations/003_ibes_statsumu.sql", "ibes_stats.parquet"),
+        ("functions/migrations/004_ibes_actu.sql", "ibes_act.parquet"),
     ],
 )

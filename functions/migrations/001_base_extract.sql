@@ -1,6 +1,7 @@
 -- Center for Research in Security Prices (CRSP) daily stock file (dsf)
-SELECT cusip,                                                -- 8-digit CUSIP identifier
-       permno,                                               -- CRSP permanent security number (unique ID)
+SELECT d.cusip,                                              -- 8-digit CUSIP identifier
+       d.permno,                                             -- CRSP permanent security number (unique ID)
+       s.ticker,                                             -- ticker
        "date",                                               -- trading date (YYYY-MM-DD)
        bidlo,                                                -- daily low (bid/low price)
        askhi,                                                -- daily high (ask/high price)
@@ -23,10 +24,14 @@ SELECT cusip,                                                -- 8-digit CUSIP id
        vol * cfacshr                                        AS adj_vol,         -- adjusted volume
        shrout * cfacshr                                     AS adj_shrout,      -- adjusted shares outstanding (useful for adj. market cap)
        abs(prc) / NULLIF(cfacpr, 0) * (shrout * cfacshr)    AS adj_mktcap       -- adjusted market cap
-FROM crsp.dsf
-WHERE "date" >= %(start)s::date
-  AND "date" <  %(end)s::date
-  AND ticker IN (
+FROM crsp.dsf d
+JOIN crsp.stocknames s
+  ON d.permno = s.permno
+ AND d."date" >= s.namedt
+ AND d."date" <= COALESCE(s.nameenddt, DATE '9999-12-31')
+WHERE d."date" >= %(start)s::date
+  AND d."date" <  %(end)s::date
+  AND s.ticker IN (
     'AAPL', 'NVDA', 'MSFT', 'AMZN', 'TSLA', 'GOOGL', 'LLY', 'WMT', 'JPM', 'BRK-B',
     'V', 'MA', 'XOM', 'ORCL', 'UNH', 'COST', 'PG', 'HD', 'NFLX',
     'JNJ', 'BAC', 'CRM', 'QQQ', 'ABBV', 'KO', 'CVX', 'TMUS', 'MRK', 'CSCO',
