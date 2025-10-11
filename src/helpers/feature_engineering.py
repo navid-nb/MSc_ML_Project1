@@ -307,6 +307,7 @@ def add_lagged_columns(df: pd.DataFrame, lag_configs: dict) -> pd.DataFrame:
 
     return out
 
+
 def feature_augmentation(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     # ======================================================================================
@@ -376,8 +377,9 @@ def feature_augmentation(df: pd.DataFrame) -> pd.DataFrame:
     out["ratio_beta_proxy"] = out["adj_prc_logret"] / (out["comm_^GSPC_close_logret"] + 1e-8)
 
     # add anualized volatility (20-trading days)
-    out["anualized_volatility_20d"] = out.groupby(level="permno")["adj_prc_logret"] \
-        .transform(lambda s: s.rolling(20, min_periods=max(1, 20 // 2)).std() * np.sqrt(252))
+    out["anualized_volatility_20d"] = out.groupby(level="permno")["adj_prc_logret"].transform(
+        lambda s: s.rolling(20, min_periods=max(1, 20 // 2)).std() * np.sqrt(252)
+    )
 
     # ======================================================================================
     # 5) ADD lagged columns

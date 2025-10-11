@@ -426,7 +426,7 @@ def build_model_matrix_from_wrds(
 
     common_features = pd.read_parquet(os.path.join(res["run_folder"], "common_features.parquet"))
     df_prices = join_prices_with_common_features(df_prices, common_features)
-    
+
     # print("$$$$ df_prices shape after joining IBES act: " , df_prices.shape)
     # impute null using ffill
     df_prices = forward_fill_and_remove_initial_nans(df_prices, add_fill_source_columns=False)
