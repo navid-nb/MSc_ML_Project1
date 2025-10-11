@@ -8,7 +8,7 @@ python version is supported).
 - **Python 3.10 – 3.13**. The installer enforces this supported range.
   - If python is not installed, you can install it using an installer on 
     windows (see [python.org](python.org)) or using homebrew on MacOS. 
-    On Mac, run `brew search python` and then run `brew update` and 
+    On Mac, run `brew update` and then run `brew search python` and 
     `brew install python@3.10` (3.11, 3.12, 3.13 are also supported).
 - Supports x86-64 and ARM (i.e. M1 Mac, Intel Mac, and Windows).
 - GPU is not needed.
