@@ -1,47 +1,35 @@
-#!/usr/bin/env python3
-# Converted from notebook to .py
-# - Emojis removed
-# - Instructional/prose prints converted to comments; prints now focus on results/stats
-# - Jupyter-only display(...) replaced with plain printing
-# - Functionality preserved so equity curves match the notebook
-
-# =========================
+# =============================================================
 # 0. Imports
-# =========================
+# =============================================================
 
 import os
+
 os.environ["PYTHONWARNINGS"] = "ignore:pkg_resources is deprecated as an API:UserWarning"
 
-import warnings
 import time
+import warnings
 
-from sklearn.model_selection import GridSearchCV, GroupKFold
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import ElasticNet
-from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.linear_model import Ridge
-from sklearn.pipeline import Pipeline
-from sklearn.metrics import log_loss
-from sklearn.base import clone
-from scipy.stats import binomtest
-import pandas as pd
 import numpy as np
+import pandas as pd
+from scipy.stats import binomtest
+from sklearn.base import clone
+from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import ElasticNet, LogisticRegression, Ridge
+from sklearn.metrics import log_loss, mean_squared_error, r2_score
+from sklearn.model_selection import GridSearchCV, GroupKFold
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
-from src.helpers.model_matrix import align_and_fill_dates_across_tickers
-from src.helpers.model_matrix import build_model_matrix_from_wrds
-from src.helpers.output_generation import generate_oos_report
-from src.helpers.split_window import split_rolling_window
-from src.helpers.split_window import split_train_and_test
-from src.helpers.portfolio_backtest import (
-    calculate_portfolio_returns,
+from functions.helpers.allocation_strategies import apply_allocation_strategy
+from functions.helpers.output_generation import generate_oos_report
+from functions.helpers.portfolio_backtest import (
+    backtest_strategy,
     calculate_equity_curve,
-    calculate_performance_metrics
+    calculate_performance_metrics,
+    calculate_portfolio_returns,
 )
-from src.helpers.allocation_strategies import apply_allocation_strategy
-from src.helpers.portfolio_backtest import backtest_strategy
-
+from functions.helpers.split_window import split_rolling_window, split_train_and_test
+from run_data import build_model_matrix_from_wrds
 
 warnings.filterwarnings(
     "ignore",
@@ -55,11 +43,7 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    module=r"pkg_resources(\.|$)"
-)
+warnings.filterwarnings("ignore", category=UserWarning, module=r"pkg_resources(\.|$)")
 
 warnings.filterwarnings(
     "ignore",
@@ -67,58 +51,47 @@ warnings.filterwarnings(
     category=RuntimeWarning,
 )
 
-# =========================
+# =============================================================
 # 1. Data build & cleaning (CRSP/DSF/IBES/FF)
-# =========================
+# =============================================================
 
 tickers_list = [
-    'AAPL', 'NVDA', 'MSFT', 'AMZN', 'TSLA',
-     'GOOGL', 'LLY', 'WMT', 'JPM', 'BRK-B',
-     # more tickers can be enabled below if desired
-     #'V', 'MA', 'XOM', 'ORCL', 'UNH', 'COST', 'PG', 'HD', 'NFLX',
-     #'JNJ', 'BAC', 'CRM', 'QQQ', 'ABBV', 'KO', 'CVX', 'TMUS', 'MRK', 'CSCO',
-     #'WFC', 'ACN', 'NOW', 'TSM', 'AXP', 'PEP', 'MCD', 'IBM', 'MS', 'DIS',
-     #'TMO', 'ABT', 'AMD', 'ADBE', 'PM', 'ISRG', 'GE', 'GS', 'INTU', 'CAT',
-     #'TXN', 'QCOM', 'RY', 'VZ', 'DHR', 'BKNG', 'T', 'BLK', 'SPGI',
-     #'RTX', 'PFE', 'NEE', 'HON', 'CMCSA', 'PGR', 'AMGN', 'LOW', 'ANET', 'UNP',
-     #'SYK', 'TJX', 'C', 'BA', 'SCHW', 'BSX', 'KKR', 'ETN',
-     #'COP', 'BX', 'PANW', 'ADP'
+    "AAPL",
+    "NVDA",
+    "MSFT",
+    "AMZN",
+    "TSLA",
+    "GOOGL",
+    "LLY",
+    "WMT",
+    "JPM",
+    "BRK-B",
+    # more tickers can be enabled below if desired
+    #'V', 'MA', 'XOM', 'ORCL', 'UNH', 'COST', 'PG', 'HD', 'NFLX',
+    #'JNJ', 'BAC', 'CRM', 'QQQ', 'ABBV', 'KO', 'CVX', 'TMUS', 'MRK', 'CSCO',
+    #'WFC', 'ACN', 'NOW', 'TSM', 'AXP', 'PEP', 'MCD', 'IBM', 'MS', 'DIS',
+    #'TMO', 'ABT', 'AMD', 'ADBE', 'PM', 'ISRG', 'GE', 'GS', 'INTU', 'CAT',
+    #'TXN', 'QCOM', 'RY', 'VZ', 'DHR', 'BKNG', 'T', 'BLK', 'SPGI',
+    #'RTX', 'PFE', 'NEE', 'HON', 'CMCSA', 'PGR', 'AMGN', 'LOW', 'ANET', 'UNP',
+    #'SYK', 'TJX', 'C', 'BA', 'SCHW', 'BSX', 'KKR', 'ETN',
+    #'COP', 'BX', 'PANW', 'ADP'
 ]
 
 # Extract all needed ticker data from WRDS (the WRDS filter is only date range).
 # By extracting broadly, tickers_list can be updated later without reconnecting.
-# Data sources: DSF, CRSP, Fama-French, IBES (see src/migrations).
-all_stocks = build_model_matrix_from_wrds(
+# Data sources: DSF, CRSP, Fama-French, IBES (see functions/migrations).
+df = build_model_matrix_from_wrds(
     wrds_user="your-wrds-username",
     start="2016-01-01",
     end="2021-01-01",
     chunk_size=500_000,
     tickers=tickers_list,
-    use_run="last"  # "new", "last", or a specific folder name (e.g. "run_20250914_133747")
+    use_run="last",  # "new", "last", or a specific folder name (e.g. "run_20250914_133747")
 )
 
-# Ensure all stocks have the same date coverage
-df = align_and_fill_dates_across_tickers(all_stocks=all_stocks)
-
-# Data quality check: inspect adj_prc_logret_lead1 distribution
-print("=== Data Quality Check: adj_prc_logret_lead1 ===")
-print(f"Min value: {df['adj_prc_logret_lead1'].min():.6f}")
-print(f"Max value: {df['adj_prc_logret_lead1'].max():.6f}")
-print(f"Mean: {df['adj_prc_logret_lead1'].mean():.6f}")
-print(f"Median: {df['adj_prc_logret_lead1'].median():.6f}")
-print(f"Std Dev: {df['adj_prc_logret_lead1'].std():.6f}")
-print(f"\nCount of extreme values (< -1.0): {(df['adj_prc_logret_lead1'] < -1.0).sum()}")
-print(f"Count of extreme values (> 1.0): {(df['adj_prc_logret_lead1'] > 1.0).sum()}")
-
-# Show rows with suspicious minimum values
-suspicious_rows = df[df['adj_prc_logret_lead1'] < -1.0].sort_values('adj_prc_logret_lead1')
-if len(suspicious_rows) > 0:
-    print("\n=== Suspicious rows with adj_prc_logret_lead1 < -1.0 ===")
-    print(suspicious_rows[['ticker', 'adj_prc_logret_lead1']].head(10))
-
-# =========================
+# =============================================================
 # 2. Train/test split & rolling CV split
-# =========================
+# =============================================================
 
 # Execute the split
 random_state = 42
@@ -130,19 +103,21 @@ ins_dates, dates_out_sample, split_date = split_train_and_test(df, split_pct, ra
 
 # Configure rolling windows
 split_pct_rolling_train = 0.6  # 60% for training
-split_pct_rolling_test = 0.2   # 20% for validation
+split_pct_rolling_test = 0.2  # 20% for validation
 target_folds_count = 10
 
-ins_window_size, ins_training_window_size, ins_validation_window_size, step_size, actual_folds = split_rolling_window(
-    ins_dates,
-    split_pct_rolling_train=split_pct_rolling_train,
-    split_pct_rolling_test=split_pct_rolling_test,
-    target_folds_count=target_folds_count
+ins_window_size, ins_training_window_size, ins_validation_window_size, step_size, actual_folds = (
+    split_rolling_window(
+        ins_dates,
+        split_pct_rolling_train=split_pct_rolling_train,
+        split_pct_rolling_test=split_pct_rolling_test,
+        target_folds_count=target_folds_count,
+    )
 )
 
-# =========================
+# =============================================================
 # 3. Logistic Regression (Direction)
-# =========================
+# =============================================================
 
 # 3.1 Configuration
 # Target Column: adj_prc_logret_lead1 = next-day log return(t -> t+1)
@@ -152,8 +127,12 @@ DIR_binary = (df["adj_prc_logret_lead1"] > 0).astype(int)  # 1 = up, 0 = down
 
 # Check class balance (market neutrality ~ 50/50)
 print("\nBinary Target Distribution")
-print(f" Up (1):   {(DIR_binary == 1).sum():,} observations ({(DIR_binary == 1).mean() * 100:.1f}%)")  # noqa
-print(f" Down (0): {(DIR_binary == 0).sum():,} observations ({(DIR_binary == 0).mean() * 100:.1f}%)")  # noqa
+print(
+    f" Up (1):   {(DIR_binary == 1).sum():,} observations ({(DIR_binary == 1).mean() * 100:.1f}%)"
+)  # noqa
+print(
+    f" Down (0): {(DIR_binary == 0).sum():,} observations ({(DIR_binary == 0).mean() * 100:.1f}%)"
+)  # noqa
 print(f" Total:    {len(DIR_binary):,} observations")
 
 # Feature columns: everything except ticker, target, and the index columns, permno and date.
@@ -168,8 +147,8 @@ print(f"\nUsing {len(num_pred_cols)} features for prediction")
 TUNE_HYPERPARAMETERS = False  # Set to True to enable full grid search, False for hardcoded values
 
 # Hardcoded hyperparameters (used when TUNE_HYPERPARAMETERS = False)
-ELASTICNET_C = 0.1           # Inverse of regularization strength
-ELASTICNET_L1_RATIO = 0.7    # L1/L2 tradeoff (0 ridge, 1 lasso)
+ELASTICNET_C = 0.1  # Inverse of regularization strength
+ELASTICNET_L1_RATIO = 0.7  # L1/L2 tradeoff (0 ridge, 1 lasso)
 
 # Grid search ranges (used when TUNE_HYPERPARAMETERS = True)
 param_grid = {
@@ -178,28 +157,29 @@ param_grid = {
 }
 
 # Preprocessing: Standardize features
-ct = ColumnTransformer([
-    (
-        "num",  # numerical
-        # scales each feature so ElasticNet penalty treats them similarly (avoid leakage)
-        StandardScaler(with_mean=True),
-        num_pred_cols  # only numerical columns
-    )
-],
+ct = ColumnTransformer(
+    [
+        (
+            "num",  # numerical
+            # scales each feature so ElasticNet penalty treats them similarly (avoid leakage)
+            StandardScaler(with_mean=True),
+            num_pred_cols,  # only numerical columns
+        )
+    ],
     remainder="drop",  # columns not listed are dropped
-    sparse_threshold=0.0  # force dense for feature importance
+    sparse_threshold=0.0,  # force dense for feature importance
 )
 
 # Classifier with ElasticNet regularization
 clf = LogisticRegression(
     penalty="elasticnet",  # Use ElasticNet (L1 + L2)
-    solver="saga",         # Only solver supporting elasticnet
+    solver="saga",  # Only solver supporting elasticnet
     l1_ratio=ELASTICNET_L1_RATIO,  # Mix of L1 and L2
-    C=ELASTICNET_C,        # Regularization strength
-    max_iter=5000,         # More iterations for convergence
+    C=ELASTICNET_C,  # Regularization strength
+    max_iter=5000,  # More iterations for convergence
     tol=1e-4,
     random_state=random_state,
-    n_jobs=-1  # Use all CPUs
+    n_jobs=-1,  # Use all CPUs
 )
 
 # Pipeline: preprocessing to classification
@@ -224,9 +204,13 @@ start_pos = 0
 while start_pos + ins_training_window_size + ins_validation_window_size <= len(ins_dates):
     window_num += 1
 
-    train_dates = ins_dates[start_pos: start_pos + ins_training_window_size]
+    train_dates = ins_dates[start_pos : start_pos + ins_training_window_size]
     valid_dates = ins_dates[
-                  start_pos + ins_training_window_size: start_pos + ins_training_window_size + ins_validation_window_size]
+        start_pos
+        + ins_training_window_size : start_pos
+        + ins_training_window_size
+        + ins_validation_window_size
+    ]
 
     print(f"\nWindow {window_num}: {train_dates.min().date()} to {valid_dates.max().date()}")
 
@@ -249,12 +233,12 @@ while start_pos + ins_training_window_size + ins_validation_window_size <= len(i
             scoring="neg_log_loss",  # minimize log loss (cross-entropy)
             cv=GroupKFold(n_splits=3),
             n_jobs=-1,
-            refit=True
+            refit=True,
         )
         gs.fit(X_tr, y_tr, groups=groups_ins)
         pipe_best = gs.best_estimator_
-        best_C = gs.best_params_['clf__C']
-        best_l1 = gs.best_params_['clf__l1_ratio']
+        best_C = gs.best_params_["clf__C"]
+        best_l1 = gs.best_params_["clf__l1_ratio"]
         cv_score = gs.best_score_
     else:
         # Use hardcoded hyperparameters (faster)
@@ -275,11 +259,9 @@ while start_pos + ins_training_window_size + ins_validation_window_size <= len(i
     # Feature Selection Analysis (from tuned model)
     coef = pipe_best.named_steps["clf"].coef_[0]
 
-    feature_importance = pd.DataFrame({
-        "feature": num_pred_cols,
-        "coefficient": coef,
-        "abs_coefficient": np.abs(coef)
-    })
+    feature_importance = pd.DataFrame(
+        {"feature": num_pred_cols, "coefficient": coef, "abs_coefficient": np.abs(coef)}
+    )
 
     ZERO_THRESHOLD = 1e-5
     selected_features = feature_importance[feature_importance["abs_coefficient"] > ZERO_THRESHOLD]
@@ -288,15 +270,17 @@ while start_pos + ins_training_window_size + ins_validation_window_size <= len(i
 
     top_features = selected_features.nlargest(10, "abs_coefficient")
 
-    feature_selection_history.append({
-        "window": window_num,
-        "n_features_selected": n_selected,
-        "pct_selected": pct_selected,
-        "selected_features": selected_features["feature"].tolist(),
-        "top_5_features": top_features.head(5)["feature"].tolist(),
-        "train_start": train_dates.min(),
-        "valid_end": valid_dates.max()
-    })
+    feature_selection_history.append(
+        {
+            "window": window_num,
+            "n_features_selected": n_selected,
+            "pct_selected": pct_selected,
+            "selected_features": selected_features["feature"].tolist(),
+            "top_5_features": top_features.head(5)["feature"].tolist(),
+            "train_start": train_dates.min(),
+            "valid_end": valid_dates.max(),
+        }
+    )
 
     # Predictions from the tuned model
     proba = pipe_best.predict_proba(X_va)
@@ -346,15 +330,21 @@ for window_info in feature_selection_history:
         feature_counts[feat] += 1
 
 # Calculate frequency and statistical significance
-feature_freq = pd.DataFrame([
-    {
-        "feature": feat,
-        "count": count,
-        "frequency": count / n_windows if n_windows > 0 else 0.0,
-        "p_value": binomtest(count, n_windows, p=0.5, alternative='greater').pvalue if n_windows > 0 else 1.0
-    }
-    for feat, count in feature_counts.items()
-]).sort_values("frequency", ascending=False)
+feature_freq = pd.DataFrame(
+    [
+        {
+            "feature": feat,
+            "count": count,
+            "frequency": count / n_windows if n_windows > 0 else 0.0,
+            "p_value": (
+                binomtest(count, n_windows, p=0.5, alternative="greater").pvalue
+                if n_windows > 0
+                else 1.0
+            ),
+        }
+        for feat, count in feature_counts.items()
+    ]
+).sort_values("frequency", ascending=False)
 
 # Statistical threshold: Features must be significantly better than random
 SIGNIFICANCE_LEVEL = 0.05  # Standard 5% significance level
@@ -369,34 +359,43 @@ print("   Test: Binomial test against H0: feature selected randomly (p=0.5)")
 
 # Calculate minimum required appearances for significance
 if n_windows > 0:
-    min_appearances_for_sig = min([i for i in range(n_windows + 1)
-                                   if binomtest(i, n_windows, 0.5, alternative='greater').pvalue < SIGNIFICANCE_LEVEL])
+    min_appearances_for_sig = min(
+        [
+            i
+            for i in range(n_windows + 1)
+            if binomtest(i, n_windows, 0.5, alternative="greater").pvalue < SIGNIFICANCE_LEVEL
+        ]
+    )
 else:
     min_appearances_for_sig = 0
 
 print("\n  Statistical Requirement:")
-print(f"   For {n_windows} windows, need >={min_appearances_for_sig}/{n_windows} appearances "
-      f"(>={min_appearances_for_sig/n_windows:.0%} if n_windows>0 else 0%)")
+print(
+    f"   For {n_windows} windows, need >={min_appearances_for_sig}/{n_windows} appearances "
+    f"(>={min_appearances_for_sig/n_windows:.0%} if n_windows>0 else 0%)"
+)
 if n_windows > 0:
-    print(f"   Note: 50% threshold ({n_windows//2}/{n_windows}) has p-value: "
-          f"{binomtest(n_windows//2, n_windows, 0.5, alternative='greater').pvalue:.3f}")
+    print(
+        f"   Note: 50% threshold ({n_windows//2}/{n_windows}) has p-value: "
+        f"{binomtest(n_windows//2, n_windows, 0.5, alternative='greater').pvalue:.3f}"
+    )
 
 print("\n  Results:")
 print(f"   Features selected: {len(final_feature_list)} / {len(num_pred_cols)}")
 print(f"   Features removed:  {len(num_pred_cols) - len(final_feature_list)}")
 print(f"   Reduction: {(1 - len(final_feature_list) / len(num_pred_cols)) * 100:.1f}%")
 
-# Display selected features (no emoji)
+# Display selected features
 print(f"\n  Selected Features ({len(final_feature_list)}) - Statistically Significant:")
 print(f"    {'Feature':<30} {'Frequency':>10} {'Count':>8} {'P-value':>10} {'Sig'}")
 print("    " + "=" * 70)
 
 selected_features_df = feature_freq[selected_features_mask].copy()
 for idx, row in selected_features_df.iterrows():
-    feat = row['feature']
-    freq = row['frequency']
-    count = row['count']
-    p_val = row['p_value']
+    feat = row["feature"]
+    freq = row["frequency"]
+    count = row["count"]
+    p_val = row["p_value"]
     if p_val < 0.001:
         sig = "***"
     elif p_val < 0.01:
@@ -405,7 +404,7 @@ for idx, row in selected_features_df.iterrows():
         sig = "*"
     else:
         sig = "n.s."
-    bar = '█' * int(freq * 20)
+    bar = "█" * int(freq * 20)
     print(f"    {feat:<30} {freq:>6.1%} ({count:>2}/{n_windows})  p={p_val:>6.4f} {sig:>5}  {bar}")
 
 # Display removed features (top 15 by frequency, but not statistically significant)
@@ -418,12 +417,13 @@ if len(removed_features_df) > 0:
     print("    " + "=" * 70)
 
     for idx, row in removed_features_df.head(15).iterrows():
-        feat = row['feature']
-        freq = row['frequency']
-        count = row['count']
-        p_val = row['p_value']
-        bar = '░' * int(freq * 20)
+        feat = row["feature"]
+        freq = row["frequency"]
+        count = row["count"]
+        p_val = row["p_value"]
+        bar = "░" * int(freq * 20)
         print(f"    {feat:<30} {freq:>6.1%} ({count:>2}/{n_windows})  p={p_val:>6.4f} n.s.  {bar}")
+
 
 # Feature categories breakdown
 def categorize_feature(feat):
@@ -447,6 +447,7 @@ def categorize_feature(feat):
         return "Market Data"
     else:
         return "Other"
+
 
 selected_features_df["category"] = selected_features_df["feature"].apply(categorize_feature)
 category_counts = selected_features_df["category"].value_counts()
@@ -473,7 +474,7 @@ groups_ins = df.loc[ins_mask].index.get_level_values("date")
 ct_final_cv = ColumnTransformer(
     [("num", StandardScaler(with_mean=True), final_feature_list)],
     remainder="drop",
-    sparse_threshold=0.0
+    sparse_threshold=0.0,
 )
 clf_final_cv = LogisticRegression(
     penalty="l2",  # Ridge regularization only
@@ -481,7 +482,7 @@ clf_final_cv = LogisticRegression(
     max_iter=5000,
     tol=1e-4,
     random_state=random_state,
-    n_jobs=-1
+    n_jobs=-1,
 )
 pipe_final_cv = Pipeline([("prep", ct_final_cv), ("clf", clf_final_cv)])
 
@@ -498,14 +499,17 @@ if TUNE_HYPERPARAMETERS:
         cv=cv_global,
         n_jobs=-1,
         refit=True,
-        verbose=0
+        verbose=0,
     )
     gs_global.fit(X_ins, y_ins, groups=groups_ins)
     best_C = gs_global.best_params_["clf__C"]
     # Print summary table safely (no display())
     results_df = pd.DataFrame(gs_global.cv_results_)
-    table = results_df[['param_clf__C', 'mean_test_score', 'std_test_score']].sort_values(
-        'mean_test_score', ascending=False).to_string(index=False)
+    table = (
+        results_df[["param_clf__C", "mean_test_score", "std_test_score"]]
+        .sort_values("mean_test_score", ascending=False)
+        .to_string(index=False)
+    )
     print("\nRidge C grid-search summary (higher mean_test_score is better neg_log_loss):")
     print(table)
 else:
@@ -521,12 +525,12 @@ clf_final = LogisticRegression(
     max_iter=5000,
     tol=1e-4,
     random_state=random_state,
-    n_jobs=-1
+    n_jobs=-1,
 )
 ct_final = ColumnTransformer(
     [("num", StandardScaler(with_mean=True), final_feature_list)],
     remainder="drop",
-    sparse_threshold=0.0
+    sparse_threshold=0.0,
 )
 pipe_final = Pipeline([("prep", ct_final), ("clf", clf_final)])
 pipe_final.fit(X_ins, y_ins)
@@ -552,9 +556,9 @@ if train_probs.max() > 0.99 or train_probs.min() < 0.01:
 elif extreme_pct > 20:
     print(f"  Note: {extreme_pct:.1f}% of predictions are very confident (<0.05 or >0.95)")
 
-# =========================
+# =============================================================
 # 4. Linear Regression (Magnitude)
-# =========================
+# =============================================================
 
 # 4.1 Configuration
 # Target Column: adj_prc_logret_lead1 = next-day log return(t -> t+1)
@@ -587,17 +591,13 @@ param_grid_linear = {
 }
 
 # Preprocessing: Standardize features (same as logistic)
-ct_linear = ColumnTransformer([
-    ("num", StandardScaler(with_mean=True), num_pred_cols)
-], remainder="drop", sparse_threshold=0.0)
+ct_linear = ColumnTransformer(
+    [("num", StandardScaler(with_mean=True), num_pred_cols)], remainder="drop", sparse_threshold=0.0
+)
 
 # ElasticNet regression with L1 + L2 regularization
 clf_linear = ElasticNet(
-    alpha=LINEAR_ALPHA,
-    l1_ratio=LINEAR_L1_RATIO,
-    max_iter=5000,
-    tol=1e-4,
-    random_state=random_state
+    alpha=LINEAR_ALPHA, l1_ratio=LINEAR_L1_RATIO, max_iter=5000, tol=1e-4, random_state=random_state
 )
 
 # Pipeline: preprocessing to regression
@@ -620,9 +620,13 @@ while start_pos + ins_training_window_size + ins_validation_window_size <= len(i
     window_num += 1
     window_start_time = time.time()
 
-    train_dates = ins_dates[start_pos: start_pos + ins_training_window_size]
+    train_dates = ins_dates[start_pos : start_pos + ins_training_window_size]
     valid_dates = ins_dates[
-                  start_pos + ins_training_window_size: start_pos + ins_training_window_size + ins_validation_window_size]
+        start_pos
+        + ins_training_window_size : start_pos
+        + ins_training_window_size
+        + ins_validation_window_size
+    ]
 
     print(f"\n{'='*70}")
     print(f"Window {window_num}: {train_dates.min().date()} to {valid_dates.max().date()}")
@@ -650,12 +654,12 @@ while start_pos + ins_training_window_size + ins_validation_window_size <= len(i
             scoring="neg_mean_squared_error",  # maximize -MSE == minimize MSE
             cv=GroupKFold(n_splits=3),
             n_jobs=-1,
-            refit=True
+            refit=True,
         )
         gs_linear.fit(X_tr, y_tr, groups=groups_ins)
         pipe_best_linear = gs_linear.best_estimator_
-        best_alpha = gs_linear.best_params_['clf__alpha']
-        best_l1_ratio = gs_linear.best_params_['clf__l1_ratio']
+        best_alpha = gs_linear.best_params_["clf__alpha"]
+        best_l1_ratio = gs_linear.best_params_["clf__l1_ratio"]
         cv_score = gs_linear.best_score_
     else:
         # Use hardcoded hyperparameters (faster) - create fresh clone
@@ -682,11 +686,9 @@ while start_pos + ins_training_window_size + ins_validation_window_size <= len(i
     # Feature Selection Analysis (from tuned model)
     coef = pipe_best_linear.named_steps["clf"].coef_
 
-    feature_importance = pd.DataFrame({
-        "feature": num_pred_cols,
-        "coefficient": coef,
-        "abs_coefficient": np.abs(coef)
-    })
+    feature_importance = pd.DataFrame(
+        {"feature": num_pred_cols, "coefficient": coef, "abs_coefficient": np.abs(coef)}
+    )
 
     ZERO_THRESHOLD = 1e-5
     selected_features = feature_importance[feature_importance["abs_coefficient"] > ZERO_THRESHOLD]
@@ -695,15 +697,17 @@ while start_pos + ins_training_window_size + ins_validation_window_size <= len(i
 
     top_features = selected_features.nlargest(10, "abs_coefficient")
 
-    feature_selection_history_linear.append({
-        "window": window_num,
-        "n_features_selected": n_selected,
-        "pct_selected": pct_selected,
-        "selected_features": selected_features["feature"].tolist(),
-        "top_5_features": top_features.head(5)["feature"].tolist(),
-        "train_start": train_dates.min(),
-        "valid_end": valid_dates.max()
-    })
+    feature_selection_history_linear.append(
+        {
+            "window": window_num,
+            "n_features_selected": n_selected,
+            "pct_selected": pct_selected,
+            "selected_features": selected_features["feature"].tolist(),
+            "top_5_features": top_features.head(5)["feature"].tolist(),
+            "train_start": train_dates.min(),
+            "valid_end": valid_dates.max(),
+        }
+    )
 
     # Store predictions
     pred_return_linear.loc[idx_va] = y_pred_val
@@ -717,7 +721,9 @@ while start_pos + ins_training_window_size + ins_validation_window_size <= len(i
         print(f"      {i + 1}. {row['feature']}: {row['coefficient']:+.6f}")
 
     window_time = time.time() - window_start_time
-    print(f"\nWindow {window_num} total time: {window_time:.2f} seconds ({window_time/60:.2f} minutes)")
+    print(
+        f"\nWindow {window_num} total time: {window_time:.2f} seconds ({window_time/60:.2f} minutes)"
+    )
 
 print(f"\nLinear Regression Training complete: {window_num} windows processed")
 print(f"Total validated: {used_mask_linear.sum():,} / {len(df):,}")
@@ -737,21 +743,29 @@ for window_info in feature_selection_history_linear:
         feature_counts_linear[feat] += 1
 
 # Calculate frequency and statistical significance
-feature_freq_linear = pd.DataFrame([
-    {
-        "feature": feat,
-        "count": count,
-        "frequency": count / n_windows_linear if n_windows_linear > 0 else 0.0,
-        "p_value": binomtest(count, n_windows_linear, p=0.5, alternative='greater').pvalue if n_windows_linear > 0 else 1.0
-    }
-    for feat, count in feature_counts_linear.items()
-]).sort_values("frequency", ascending=False)
+feature_freq_linear = pd.DataFrame(
+    [
+        {
+            "feature": feat,
+            "count": count,
+            "frequency": count / n_windows_linear if n_windows_linear > 0 else 0.0,
+            "p_value": (
+                binomtest(count, n_windows_linear, p=0.5, alternative="greater").pvalue
+                if n_windows_linear > 0
+                else 1.0
+            ),
+        }
+        for feat, count in feature_counts_linear.items()
+    ]
+).sort_values("frequency", ascending=False)
 
 # Statistical threshold
 SIGNIFICANCE_LEVEL_LINEAR = 0.05
 
 selected_features_mask_linear = feature_freq_linear["p_value"] < SIGNIFICANCE_LEVEL_LINEAR
-final_feature_list_linear = feature_freq_linear.loc[selected_features_mask_linear, "feature"].tolist()
+final_feature_list_linear = feature_freq_linear.loc[
+    selected_features_mask_linear, "feature"
+].tolist()
 
 print("\n  Selection Criterion:")
 print(f"   Statistical significance: alpha = {SIGNIFICANCE_LEVEL_LINEAR}")
@@ -759,17 +773,27 @@ print("   Test: Binomial test against H0: feature selected randomly (p=0.5)")
 
 # Minimum required appearances
 if n_windows_linear > 0:
-    min_appearances_for_sig_linear = min([i for i in range(n_windows_linear + 1)
-                                          if binomtest(i, n_windows_linear, 0.5, alternative='greater').pvalue < SIGNIFICANCE_LEVEL_LINEAR])
+    min_appearances_for_sig_linear = min(
+        [
+            i
+            for i in range(n_windows_linear + 1)
+            if binomtest(i, n_windows_linear, 0.5, alternative="greater").pvalue
+            < SIGNIFICANCE_LEVEL_LINEAR
+        ]
+    )
 else:
     min_appearances_for_sig_linear = 0
 
 print("\n  Statistical Requirement:")
-print(f"   For {n_windows_linear} windows, need >={min_appearances_for_sig_linear}/{n_windows_linear} appearances "
-      f"(>={min_appearances_for_sig_linear/n_windows_linear:.0%} if n_windows_linear>0 else 0%)")
+print(
+    f"   For {n_windows_linear} windows, need >={min_appearances_for_sig_linear}/{n_windows_linear} appearances "
+    f"(>={min_appearances_for_sig_linear/n_windows_linear:.0%} if n_windows_linear>0 else 0%)"
+)
 if n_windows_linear > 0:
-    print(f"   Note: 50% threshold ({n_windows_linear//2}/{n_windows_linear}) has p-value: "
-          f"{binomtest(n_windows_linear//2, n_windows_linear, 0.5, alternative='greater').pvalue:.3f}")
+    print(
+        f"   Note: 50% threshold ({n_windows_linear//2}/{n_windows_linear}) has p-value: "
+        f"{binomtest(n_windows_linear//2, n_windows_linear, 0.5, alternative='greater').pvalue:.3f}"
+    )
 
 print("\n  Results:")
 print(f"   Features selected: {len(final_feature_list_linear)} / {len(num_pred_cols)}")
@@ -779,7 +803,9 @@ print(f"   Reduction: {(1 - len(final_feature_list_linear) / len(num_pred_cols))
 # Safety check: ensure at least some features were selected
 if len(final_feature_list_linear) == 0:
     print("\n  WARNING: No features selected with current statistical threshold!")
-    raise ValueError("No features selected for linear regression model. Adjust hyperparameters or significance level.")
+    raise ValueError(
+        "No features selected for linear regression model. Adjust hyperparameters or significance level."
+    )
 
 # Display selected features
 print(f"\n  Selected Features ({len(final_feature_list_linear)}) - Statistically Significant:")
@@ -788,10 +814,10 @@ print("    " + "=" * 70)
 
 selected_features_df_linear = feature_freq_linear[selected_features_mask_linear].copy()
 for idx, row in selected_features_df_linear.iterrows():
-    feat = row['feature']
-    freq = row['frequency']
-    count = row['count']
-    p_val = row['p_value']
+    feat = row["feature"]
+    freq = row["frequency"]
+    count = row["count"]
+    p_val = row["p_value"]
     if p_val < 0.001:
         sig = "***"
     elif p_val < 0.01:
@@ -800,8 +826,10 @@ for idx, row in selected_features_df_linear.iterrows():
         sig = "*"
     else:
         sig = "n.s."
-    bar = '█' * int(freq * 20)
-    print(f"    {feat:<30} {freq:>6.1%} ({count:>2}/{n_windows_linear})  p={p_val:>6.4f} {sig:>5}  {bar}")
+    bar = "█" * int(freq * 20)
+    print(
+        f"    {feat:<30} {freq:>6.1%} ({count:>2}/{n_windows_linear})  p={p_val:>6.4f} {sig:>5}  {bar}"
+    )
 
 # Compare with logistic regression features
 print("\n  Comparison with Logistic Regression Features:")
@@ -834,13 +862,9 @@ groups_ins_linear = df.loc[ins_mask_linear].index.get_level_values("date")
 ct_final_linear = ColumnTransformer(
     [("num", StandardScaler(with_mean=True), final_feature_list_linear)],
     remainder="drop",
-    sparse_threshold=0.0
+    sparse_threshold=0.0,
 )
-clf_final_linear_cv = Ridge(
-    max_iter=5000,
-    tol=1e-4,
-    random_state=random_state
-)
+clf_final_linear_cv = Ridge(max_iter=5000, tol=1e-4, random_state=random_state)
 pipe_final_linear_cv = Pipeline([("prep", ct_final_linear), ("clf", clf_final_linear_cv)])
 
 # Conditional global hyperparameter tuning
@@ -856,14 +880,17 @@ if TUNE_HYPERPARAMETERS:
         cv=cv_global_linear,
         n_jobs=-1,
         refit=True,
-        verbose=0
+        verbose=0,
     )
     gs_global_linear.fit(X_ins_linear, y_ins_linear, groups=groups_ins_linear)
     best_alpha_linear = gs_global_linear.best_params_["clf__alpha"]
     # Print summary table safely
     results_df_linear = pd.DataFrame(gs_global_linear.cv_results_)
-    table_lin = results_df_linear[['param_clf__alpha', 'mean_test_score', 'std_test_score']].sort_values(
-        'mean_test_score', ascending=False).to_string(index=False)
+    table_lin = (
+        results_df_linear[["param_clf__alpha", "mean_test_score", "std_test_score"]]
+        .sort_values("mean_test_score", ascending=False)
+        .to_string(index=False)
+    )
     print("\nRidge alpha grid-search summary (higher mean_test_score is better -MSE):")
     print(table_lin)
 else:
@@ -872,15 +899,12 @@ else:
 
 # Lock in global best and train final in-sample model
 clf_final_linear = Ridge(
-    alpha=best_alpha_linear,
-    max_iter=5000,
-    tol=1e-4,
-    random_state=random_state
+    alpha=best_alpha_linear, max_iter=5000, tol=1e-4, random_state=random_state
 )
 ct_final_linear_final = ColumnTransformer(
     [("num", StandardScaler(with_mean=True), final_feature_list_linear)],
     remainder="drop",
-    sparse_threshold=0.0
+    sparse_threshold=0.0,
 )
 pipe_final_linear = Pipeline([("prep", ct_final_linear_final), ("clf", clf_final_linear)])
 pipe_final_linear.fit(X_ins_linear, y_ins_linear)
@@ -896,7 +920,7 @@ print(f"  RMSE: {rmse_ins:.6f}")
 print(f"  R²: {r2_ins:.4f}")
 
 # Report final model - Ridge doesn't eliminate
-final_coef_linear = pipe_final_linear.named_steps['clf'].coef_
+final_coef_linear = pipe_final_linear.named_steps["clf"].coef_
 non_zero_linear = (np.abs(final_coef_linear) > 1e-5).sum()
 print(f"  Total features: {len(final_feature_list_linear)}")
 print(f"  Non-zero coeffs: {non_zero_linear} / {len(final_feature_list_linear)}")
@@ -913,9 +937,9 @@ print(f"  Actual mean:     {y_ins_linear.mean():.6f}")
 print(f"  Predicted mean:  {y_pred_ins.mean():.6f}")
 print(f"  Difference:      {abs(y_pred_ins.mean() - y_ins_linear.mean()):.6f}")
 
-# =========================
+# =============================================================
 # 5. Signal Confirmation & Trading Universe Selection
-# =========================
+# =============================================================
 
 # 5.1 Signal Confirmation
 
@@ -950,43 +974,55 @@ df_signals["expected_return"] = expected_return_full
 
 print(f"\nPredictions generated for {len(df_signals):,} observations")
 print(f"   Logistic: prob(up) in [{prob_up_full.min():.4f}, {prob_up_full.max():.4f}]")
-print(f"   Linear:   E[R]     in [{expected_return_full.min():.6f}, {expected_return_full.max():.6f}]")
+print(
+    f"   Linear:   E[R]     in [{expected_return_full.min():.6f}, {expected_return_full.max():.6f}]"
+)
 
 # Define Trading Signals from Each Model
 # Logistic Regression Signals
 df_signals["logistic_signal_long"] = df_signals["prob_up"] > PROB_UP_THRESHOLD_LONG
 df_signals["logistic_signal_short"] = df_signals["prob_up"] < (1 - PROB_UP_THRESHOLD_SHORT)
-df_signals["logistic_signal_neutral"] = ~(df_signals["logistic_signal_long"] | df_signals["logistic_signal_short"])
+df_signals["logistic_signal_neutral"] = ~(
+    df_signals["logistic_signal_long"] | df_signals["logistic_signal_short"]
+)
 
 # Linear Regression Signals
 df_signals["linear_signal_long"] = df_signals["expected_return"] > EXPECTED_RETURN_THRESHOLD_LONG
 df_signals["linear_signal_short"] = df_signals["expected_return"] < -EXPECTED_RETURN_THRESHOLD_SHORT
-df_signals["linear_signal_neutral"] = ~(df_signals["linear_signal_long"] | df_signals["linear_signal_short"])
+df_signals["linear_signal_neutral"] = ~(
+    df_signals["linear_signal_long"] | df_signals["linear_signal_short"]
+)
 
 print("\nLogistic Regression Signals:")
-print(f"  Long:    {df_signals['logistic_signal_long'].sum():>6,} ({df_signals['logistic_signal_long'].mean()*100:>5.1f}%)")
-print(f"  Short:   {df_signals['logistic_signal_short'].sum():>6,} ({df_signals['logistic_signal_short'].mean()*100:>5.1f}%)")
-print(f"  Neutral: {df_signals['logistic_signal_neutral'].sum():>6,} ({df_signals['logistic_signal_neutral'].mean()*100:>5.1f}%)")
+print(
+    f"  Long:    {df_signals['logistic_signal_long'].sum():>6,} ({df_signals['logistic_signal_long'].mean()*100:>5.1f}%)"
+)
+print(
+    f"  Short:   {df_signals['logistic_signal_short'].sum():>6,} ({df_signals['logistic_signal_short'].mean()*100:>5.1f}%)"
+)
+print(
+    f"  Neutral: {df_signals['logistic_signal_neutral'].sum():>6,} ({df_signals['logistic_signal_neutral'].mean()*100:>5.1f}%)"
+)
 
 print("\nLinear Regression Signals:")
-print(f"  Long:    {df_signals['linear_signal_long'].sum():>6,} ({df_signals['linear_signal_long'].mean()*100:>5.1f}%)")
-print(f"  Short:   {df_signals['linear_signal_short'].sum():>6,} ({df_signals['linear_signal_short'].mean()*100:>5.1f}%)")
-print(f"  Neutral: {df_signals['linear_signal_neutral'].sum():>6,} ({df_signals['linear_signal_neutral'].mean()*100:>5.1f}%)")
+print(
+    f"  Long:    {df_signals['linear_signal_long'].sum():>6,} ({df_signals['linear_signal_long'].mean()*100:>5.1f}%)"
+)
+print(
+    f"  Short:   {df_signals['linear_signal_short'].sum():>6,} ({df_signals['linear_signal_short'].mean()*100:>5.1f}%)"
+)
+print(
+    f"  Neutral: {df_signals['linear_signal_neutral'].sum():>6,} ({df_signals['linear_signal_neutral'].mean()*100:>5.1f}%)"
+)
 
 # Ensemble Agreement Analysis
 print("Ensemble Agreement (Both Models Must Agree)")
 
 # Agreement on LONG: Both models say LONG
-df_signals["agreed_long"] = (
-    df_signals["logistic_signal_long"] &
-    df_signals["linear_signal_long"]
-)
+df_signals["agreed_long"] = df_signals["logistic_signal_long"] & df_signals["linear_signal_long"]
 
 # Agreement on SHORT: Both models say SHORT
-df_signals["agreed_short"] = (
-    df_signals["logistic_signal_short"] &
-    df_signals["linear_signal_short"]
-)
+df_signals["agreed_short"] = df_signals["logistic_signal_short"] & df_signals["linear_signal_short"]
 
 # Total agreement (either direction)
 df_signals["agreed_any"] = df_signals["agreed_long"] | df_signals["agreed_short"]
@@ -995,11 +1031,19 @@ df_signals["agreed_any"] = df_signals["agreed_long"] | df_signals["agreed_short"
 df_signals["disagreed"] = ~df_signals["agreed_any"]
 
 print("\nAgreement Statistics:")
-print(f"  Both Agree LONG:   {df_signals['agreed_long'].sum():>6,} ({df_signals['agreed_long'].mean()*100:>5.1f}%)")
-print(f"  Both Agree SHORT:  {df_signals['agreed_short'].sum():>6,} ({df_signals['agreed_short'].mean()*100:>5.1f}%)")
+print(
+    f"  Both Agree LONG:   {df_signals['agreed_long'].sum():>6,} ({df_signals['agreed_long'].mean()*100:>5.1f}%)"
+)
+print(
+    f"  Both Agree SHORT:  {df_signals['agreed_short'].sum():>6,} ({df_signals['agreed_short'].mean()*100:>5.1f}%)"
+)
 print("  -------------------------------------")
-print(f"  Total Agreement:   {df_signals['agreed_any'].sum():>6,} ({df_signals['agreed_any'].mean()*100:>5.1f}%)")
-print(f"  Disagreement:      {df_signals['disagreed'].sum():>6,} ({df_signals['disagreed'].mean()*100:>5.1f}%)")
+print(
+    f"  Total Agreement:   {df_signals['agreed_any'].sum():>6,} ({df_signals['agreed_any'].mean()*100:>5.1f}%)"
+)
+print(
+    f"  Disagreement:      {df_signals['disagreed'].sum():>6,} ({df_signals['disagreed'].mean()*100:>5.1f}%)"
+)
 
 # 5.2 Trading Universe Selection
 
@@ -1013,7 +1057,9 @@ df_signals.loc[df_signals["disagreed"], "ensemble_score"] = 0.0
 print("\n Ensemble Score Created:")
 print(f"   Non-zero scores (tradeable): {(df_signals['ensemble_score'] != 0).sum():>6,}")  # noqa
 print(f"   Zero scores (filtered out):  {(df_signals['ensemble_score'] == 0).sum():>6,}")  # noqa
-print(f"   Score range: [{df_signals['ensemble_score'].min():.4f}, {df_signals['ensemble_score'].max():.4f}]")
+print(
+    f"   Score range: [{df_signals['ensemble_score'].min():.4f}, {df_signals['ensemble_score'].max():.4f}]"
+)
 
 print("\n" + "=" * 80)
 print("Trading Universe Breakdown by Direction")
@@ -1060,9 +1106,9 @@ print(f"  Filtered out (disagreed): {filtered_obs:>7,} ({filtered_obs/total_obs*
 # - short_universe:   Filtered DataFrame for short candidates
 # - excluded_universe: Filtered DataFrame for disagreements (not traded)
 
-# =========================
+# =============================================================
 # 6. Allocation Strategy & Portfolio Construction
-# =========================
+# =============================================================
 
 # 6.1 Scoring Methods (configuration prints converted to comments)
 
@@ -1075,7 +1121,7 @@ CLIP_PROB_FOR_LOGIT = (0.01, 0.99)
 ALPHA_S4 = 0.5
 LAMBDA_SOFTMAX = 1.0
 USE_STABILITY_FILTER = False
-STABILITY_METHOD = "median"   # "median" or "moving_average"
+STABILITY_METHOD = "median"  # "median" or "moving_average"
 STABILITY_WINDOW = 5
 
 SCORING_DESCRIPTIONS = {
@@ -1086,7 +1132,7 @@ SCORING_DESCRIPTIONS = {
     "S5": "S(5) = p̃ · μ̃ (Multiplicative: scale-balanced combo)",
     "S6": "S(6) = (2p - 1) · |μ| (Expected directional return)",
     "S7": "S(7) = (p · μ) / σ (Risk-adjusted: Sharpe-like signal)",
-    "S8": "S(8) = Softmax weights from any score (for portfolio construction)"
+    "S8": "S(8) = Softmax weights from any score (for portfolio construction)",
 }
 
 # Step 1: Preprocessing - Winsorization & Clipping
@@ -1115,6 +1161,7 @@ else:
     df_signals["p_processed"] = p_raw
     df_signals["mu_processed"] = mu_raw
 
+
 # Step 2: Cross-Sectional Standardization (Z-scoring per date)
 def z_score_cross_sectional(series):
     """Z-score within each date"""
@@ -1124,9 +1171,14 @@ def z_score_cross_sectional(series):
         return (series - mean) / std
     return series - mean
 
+
 if USE_CROSS_SECTIONAL_STANDARDIZATION:
-    df_signals["p_tilde"] = df_signals.groupby(level="date")["p_processed"].transform(z_score_cross_sectional)
-    df_signals["mu_tilde"] = df_signals.groupby(level="date")["mu_processed"].transform(z_score_cross_sectional)
+    df_signals["p_tilde"] = df_signals.groupby(level="date")["p_processed"].transform(
+        z_score_cross_sectional
+    )
+    df_signals["mu_tilde"] = df_signals.groupby(level="date")["mu_processed"].transform(
+        z_score_cross_sectional
+    )
 else:
     df_signals["p_tilde"] = df_signals["p_processed"]
     df_signals["mu_tilde"] = df_signals["mu_processed"]
@@ -1171,7 +1223,7 @@ score_column_map = {
     "S5": "score_S5",
     "S6": "score_S6",
     "S7": "score_S7",
-    "S8": "score_S8_base"
+    "S8": "score_S8_base",
 }
 
 if SCORING_METHOD == "ALL":
@@ -1188,13 +1240,12 @@ for method in methods_to_process:
 
     # Apply softmax per date for S8
     if method == "S8":
+
         def softmax_per_date(group):
             exp_scores = np.exp(LAMBDA_SOFTMAX * group)
             return exp_scores / exp_scores.sum()
-        method_base_score = (
-            method_base_score.groupby(level="date")
-            .transform(softmax_per_date)
-        )
+
+        method_base_score = method_base_score.groupby(level="date").transform(softmax_per_date)
 
     # Only score observations where models agree
     method_base_score[df_signals["disagreed"]] = 0.0
@@ -1208,8 +1259,9 @@ else:
     df_signals["base_score"] = all_method_scores[SCORING_METHOD]
 
 # Step 5: Additional Cross-Sectional Standardization (optional) for base_score
-APPLY_SCORE_LEVEL_STANDARDIZATION = (SCORING_METHOD in ["S1", "S2", "S3", "S6", "S7"])
+APPLY_SCORE_LEVEL_STANDARDIZATION = SCORING_METHOD in ["S1", "S2", "S3", "S6", "S7"]
 if APPLY_SCORE_LEVEL_STANDARDIZATION:
+
     def cross_sectional_standardize_score(group):
         # Only standardize non-zero scores (where models agree)
         mask = group != 0
@@ -1219,9 +1271,9 @@ if APPLY_SCORE_LEVEL_STANDARDIZATION:
             if std > 0:
                 group[mask] = (group[mask] - mean) / std
         return group
-    df_signals["ranking_score"] = (
-        df_signals.groupby(level="date")["base_score"]
-        .transform(cross_sectional_standardize_score)
+
+    df_signals["ranking_score"] = df_signals.groupby(level="date")["base_score"].transform(
+        cross_sectional_standardize_score
     )
 else:
     df_signals["ranking_score"] = df_signals["base_score"]
@@ -1229,14 +1281,16 @@ else:
 # Step 6: Stability Filter (optional)
 if USE_STABILITY_FILTER:
     if STABILITY_METHOD == "median":
-        df_signals["final_ranking_score"] = (
-            df_signals.groupby(level="permno")["ranking_score"]
-            .transform(lambda x: x.rolling(window=STABILITY_WINDOW, min_periods=1, center=False).median())
+        df_signals["final_ranking_score"] = df_signals.groupby(level="permno")[
+            "ranking_score"
+        ].transform(
+            lambda x: x.rolling(window=STABILITY_WINDOW, min_periods=1, center=False).median()
         )
     elif STABILITY_METHOD == "moving_average":
-        df_signals["final_ranking_score"] = (
-            df_signals.groupby(level="permno")["ranking_score"]
-            .transform(lambda x: x.rolling(window=STABILITY_WINDOW, min_periods=1, center=False).mean())
+        df_signals["final_ranking_score"] = df_signals.groupby(level="permno")[
+            "ranking_score"
+        ].transform(
+            lambda x: x.rolling(window=STABILITY_WINDOW, min_periods=1, center=False).mean()
         )
 else:
     df_signals["final_ranking_score"] = df_signals["ranking_score"]
@@ -1253,8 +1307,12 @@ if len(final_non_zero) > 0:
     long_scores = df_signals[df_signals["agreed_long"]]["final_ranking_score"]
     short_scores = df_signals[df_signals["agreed_short"]]["final_ranking_score"]
     print("\n   Score Distribution by Direction:")
-    print(f"     LONG  (agreed):  mean = {long_scores.mean():>8.4f}, std = {long_scores.std():>8.4f}, n = {len(long_scores):>5,}")
-    print(f"     SHORT (agreed):  mean = {short_scores.mean():>8.4f}, std = {short_scores.std():>8.4f}, n = {len(short_scores):>5,}")
+    print(
+        f"     LONG  (agreed):  mean = {long_scores.mean():>8.4f}, std = {long_scores.std():>8.4f}, n = {len(long_scores):>5,}"
+    )
+    print(
+        f"     SHORT (agreed):  mean = {short_scores.mean():>8.4f}, std = {short_scores.std():>8.4f}, n = {len(short_scores):>5,}"
+    )
 
 # Step 8: Comprehensive Method Comparison (summary stats)
 mask_agreed = df_signals["agreed_any"]
@@ -1262,22 +1320,26 @@ comparison_stats = []
 for method in ["S1", "S2", "S3", "S4", "S5", "S6", "S7"]:
     scores = df_signals.loc[mask_agreed, f"score_{method}"]
     if len(scores) > 0:
-        comparison_stats.append({
-            "Method": method,
-            "Mean": scores.mean(),
-            "Std": scores.std(),
-            "Min": scores.min(),
-            "Max": scores.max(),
-            "Skew": scores.skew(),
-            "Count": len(scores)
-        })
+        comparison_stats.append(
+            {
+                "Method": method,
+                "Mean": scores.mean(),
+                "Std": scores.std(),
+                "Min": scores.min(),
+                "Max": scores.max(),
+                "Skew": scores.skew(),
+                "Count": len(scores),
+            }
+        )
 if comparison_stats:
     print("\nScore Statistics by Method (agreed observations):")
     print(f"   {'Method':<8} {'Mean':>12} {'Std':>12} {'Min':>12} {'Max':>12} {'Skew':>8}")
     print(f"   {'-'*8} {'-'*12} {'-'*12} {'-'*12} {'-'*12} {'-'*8}")
     for stat in comparison_stats:
-        print(f"   {stat['Method']:<8} {stat['Mean']:>12.6f} {stat['Std']:>12.6f} "
-              f"{stat['Min']:>12.6f} {stat['Max']:>12.6f} {stat['Skew']:>8.2f}")
+        print(
+            f"   {stat['Method']:<8} {stat['Mean']:>12.6f} {stat['Std']:>12.6f} "
+            f"{stat['Min']:>12.6f} {stat['Max']:>12.6f} {stat['Skew']:>8.2f}"
+        )
     # Pairwise correlations
     print("\nPairwise Correlations (agreed observations):")
     print(f"   {'':>8} {'S1':>8} {'S2':>8} {'S3':>8} {'S4':>8} {'S5':>8} {'S6':>8} {'S7':>8}")
@@ -1300,9 +1362,9 @@ if SCORING_METHOD == "ALL":
     for method in methods_to_process:
         df_signals[f"final_score_{method}"] = all_method_scores[method]
 
-# =========================
+# =============================================================
 # 6.2 Allocation Strategies
-# =========================
+# =============================================================
 
 print("ALLOCATION STRATEGIES: Portfolio Weight Construction")
 
@@ -1318,7 +1380,7 @@ ALLOCATION_DESCRIPTIONS = {
     "A6": "Maximum Sharpe: Mean-variance optimization",
     "A7": "Risk Parity: Equal risk contribution",
     "A8": "Softmax: w ∝ exp(λ·score)",
-    "A9": "Kelly Criterion: w ∝ μ/σ² (fractional)"
+    "A9": "Kelly Criterion: w ∝ μ/σ² (fractional)",
 }
 
 # General Constraints
@@ -1374,19 +1436,19 @@ all_strategy_weights = {}
 for strategy in strategies_to_process:
     # Prepare parameters
     strategy_params = {
-        'long_target': LONG_TARGET,
-        'short_target': SHORT_TARGET,
-        'max_position_size': MAX_POSITION_SIZE
+        "long_target": LONG_TARGET,
+        "short_target": SHORT_TARGET,
+        "max_position_size": MAX_POSITION_SIZE,
     }
     if strategy == "A3":
-        strategy_params['quantile_long_pct'] = QUANTILE_LONG_PCT
-        strategy_params['quantile_short_pct'] = QUANTILE_SHORT_PCT
+        strategy_params["quantile_long_pct"] = QUANTILE_LONG_PCT
+        strategy_params["quantile_short_pct"] = QUANTILE_SHORT_PCT
     elif strategy == "A4":
-        strategy_params['threshold_percentile'] = LONG_ONLY_THRESHOLD_PERCENTILE
+        strategy_params["threshold_percentile"] = LONG_ONLY_THRESHOLD_PERCENTILE
     elif strategy == "A8":
-        strategy_params['lambda_param'] = SOFTMAX_LAMBDA
+        strategy_params["lambda_param"] = SOFTMAX_LAMBDA
     elif strategy == "A9":
-        strategy_params['kelly_fraction'] = KELLY_FRACTION
+        strategy_params["kelly_fraction"] = KELLY_FRACTION
 
     weights = apply_allocation_strategy(
         strategy_name=strategy,
@@ -1396,7 +1458,7 @@ for strategy in strategies_to_process:
         volatility=df_signals["volatility"],
         expected_returns=df_signals["expected_return"],
         returns_df=returns_df,
-        **strategy_params
+        **strategy_params,
     )
     all_strategy_weights[strategy] = weights
 
@@ -1434,16 +1496,16 @@ print(f"    Max weight:          {active_weights.abs().max():>8.2%}")
 print(f"    Mean |weight|:       {non_zero_weights.abs().mean():>8.2%}")
 print(f"    Median |weight|:     {non_zero_weights.abs().median():>8.2%}")
 
-# =========================
+# =============================================================
 # 6.3 Optimal Scoring Method/Allocation Strategy Combination
-# =========================
+# =============================================================
 
 # Optimization Configuration (prints converted to comments)
-TEST_SCORING_METHODS = "ALL"      # "ALL" or list like ["S1","S2","S3"]
-TEST_ALLOCATION_STRATEGIES = "ALL" # "ALL" or list like ["A1","A2","A3"]
-OPTIMIZATION_METRIC = "sharpe"    # "sharpe", "total_return", "sortino", "calmar"
+TEST_SCORING_METHODS = "ALL"  # "ALL" or list like ["S1","S2","S3"]
+TEST_ALLOCATION_STRATEGIES = "ALL"  # "ALL" or list like ["A1","A2","A3"]
+OPTIMIZATION_METRIC = "sharpe"  # "sharpe", "total_return", "sortino", "calmar"
 MIN_TRADES_REQUIRED = 10
-USE_DATA = "in_sample"            # "in_sample" or "full"
+USE_DATA = "in_sample"  # "in_sample" or "full"
 
 # Prepare Test Data
 print("\nPreparing Test Data for Optimization")
@@ -1453,7 +1515,9 @@ else:
     test_df = df_signals.copy()
 
 print(f"   Total observations: {len(test_df):,}")
-print(f"   Date range: {test_df.index.get_level_values('date').min()} to {test_df.index.get_level_values('date').max()}")
+print(
+    f"   Date range: {test_df.index.get_level_values('date').min()} to {test_df.index.get_level_values('date').max()}"
+)
 print(f"   Trading days: {test_df.index.get_level_values('date').nunique()}")
 
 # Define Methods to Test
@@ -1463,7 +1527,14 @@ else:
     scoring_methods_to_test = TEST_SCORING_METHODS
 
 if TEST_ALLOCATION_STRATEGIES == "ALL":
-    allocation_strategies_to_test = ["A1", "A2", "A3", "A5", "A7", "A8"]  # A4/A6/A9 omitted for speed
+    allocation_strategies_to_test = [
+        "A1",
+        "A2",
+        "A3",
+        "A5",
+        "A7",
+        "A8",
+    ]  # A4/A6/A9 omitted for speed
 else:
     allocation_strategies_to_test = TEST_ALLOCATION_STRATEGIES
 
@@ -1493,14 +1564,14 @@ results = []
 start_time = time.time()
 
 allocation_params = {
-    'long_target': LONG_TARGET,
-    'short_target': SHORT_TARGET,
-    'max_position_size': MAX_POSITION_SIZE,
-    'quantile_long_pct': QUANTILE_LONG_PCT,
-    'quantile_short_pct': QUANTILE_SHORT_PCT,
-    'threshold_percentile': LONG_ONLY_THRESHOLD_PERCENTILE,
-    'lambda_param': SOFTMAX_LAMBDA,
-    'kelly_fraction': KELLY_FRACTION
+    "long_target": LONG_TARGET,
+    "short_target": SHORT_TARGET,
+    "max_position_size": MAX_POSITION_SIZE,
+    "quantile_long_pct": QUANTILE_LONG_PCT,
+    "quantile_short_pct": QUANTILE_SHORT_PCT,
+    "threshold_percentile": LONG_ONLY_THRESHOLD_PERCENTILE,
+    "lambda_param": SOFTMAX_LAMBDA,
+    "kelly_fraction": KELLY_FRACTION,
 }
 
 combination_num = 0
@@ -1518,26 +1589,28 @@ for scoring_method in scoring_methods_to_test:
                 returns_col="adj_prc_logret_lead1",
                 date_col="date",
                 stock_col="permno",
-                rf_rate=0.0
+                rf_rate=0.0,
             )
-            n_trades = (result['weights'] != 0).sum()  # noqa
+            n_trades = (result["weights"] != 0).sum()  # noqa
             result_summary = {
-                'scoring': scoring_method,
-                'allocation': allocation_strategy,
-                'n_trades': n_trades,
-                **result['metrics']
+                "scoring": scoring_method,
+                "allocation": allocation_strategy,
+                "n_trades": n_trades,
+                **result["metrics"],
             }
             results.append(result_summary)
         except Exception as e:
-            results.append({
-                'scoring': scoring_method,
-                'allocation': allocation_strategy,
-                'n_trades': 0,
-                'total_return': np.nan,
-                'sharpe': np.nan,
-                'max_drawdown': np.nan,
-                'error': str(e)[:100]
-            })
+            results.append(
+                {
+                    "scoring": scoring_method,
+                    "allocation": allocation_strategy,
+                    "n_trades": 0,
+                    "total_return": np.nan,
+                    "sharpe": np.nan,
+                    "max_drawdown": np.nan,
+                    "error": str(e)[:100],
+                }
+            )
 
 total_time = time.time() - start_time
 print(f"\n  Backtesting complete! Total time: {total_time:.2f}s")
@@ -1546,7 +1619,7 @@ print(f"   Average time per combination: {total_time/total_combinations:.2f}s")
 # Analyze Results
 print("\nAnalyzing Results")
 results_df = pd.DataFrame(results)
-valid_results = results_df[results_df['n_trades'] >= MIN_TRADES_REQUIRED].copy()
+valid_results = results_df[results_df["n_trades"] >= MIN_TRADES_REQUIRED].copy()
 
 print(f"\n   Total combinations tested: {len(results_df)}")
 print(f"   Valid combinations (≥{MIN_TRADES_REQUIRED} trades): {len(valid_results)}")
@@ -1558,12 +1631,16 @@ else:
     print(f"\n  Ranking by {OPTIMIZATION_METRIC.upper()}")
     valid_results = valid_results.sort_values(by=OPTIMIZATION_METRIC, ascending=False)
     print("\n  TOP 10 COMBINATIONS:\n")
-    print(f"{'Rank':<6} {'Scoring':<10} {'Allocation':<12} {OPTIMIZATION_METRIC.upper():<10} {'Sharpe':<10} {'Return %':<12} {'MaxDD %':<10} {'Trades':<8}")
+    print(
+        f"{'Rank':<6} {'Scoring':<10} {'Allocation':<12} {OPTIMIZATION_METRIC.upper():<10} {'Sharpe':<10} {'Return %':<12} {'MaxDD %':<10} {'Trades':<8}"
+    )
     print(f"{'-'*6} {'-'*10} {'-'*12} {'-'*10} {'-'*10} {'-'*12} {'-'*10} {'-'*8}")
     for i, row in valid_results.head(10).iterrows():
-        print(f"{i+1:<6} {row['scoring']:<10} {row['allocation']:<12} "
-              f"{row[OPTIMIZATION_METRIC]:>10.4f} {row['sharpe']:>10.4f} "
-              f"{row['total_return']:>12.2f} {row['max_drawdown']:>10.2f} {row['n_trades']:>8,.0f}")
+        print(
+            f"{i+1:<6} {row['scoring']:<10} {row['allocation']:<12} "
+            f"{row[OPTIMIZATION_METRIC]:>10.4f} {row['sharpe']:>10.4f} "
+            f"{row['total_return']:>12.2f} {row['max_drawdown']:>10.2f} {row['n_trades']:>8,.0f}"
+        )
 
     best = valid_results.iloc[0]
     print("\n  OPTIMAL COMBINATION")
@@ -1582,29 +1659,45 @@ else:
 
     # Comparison by Scoring Method
     print("\n  Performance by Scoring Method (Best Allocation for Each)")
-    scoring_best = valid_results.groupby('scoring').first().sort_values(by=OPTIMIZATION_METRIC, ascending=False)
-    print(f"\n{'Method':<10} {'Best Alloc':<12} {OPTIMIZATION_METRIC.upper():<12} {'Sharpe':<10} {'Return %':<12}")
+    scoring_best = (
+        valid_results.groupby("scoring")
+        .first()
+        .sort_values(by=OPTIMIZATION_METRIC, ascending=False)
+    )
+    print(
+        f"\n{'Method':<10} {'Best Alloc':<12} {OPTIMIZATION_METRIC.upper():<12} {'Sharpe':<10} {'Return %':<12}"
+    )
     print(f"{'-'*10} {'-'*12} {'-'*12} {'-'*10} {'-'*12}")
     for method, row in scoring_best.iterrows():
-        print(f"{method:<10} {row['allocation']:<12} {row[OPTIMIZATION_METRIC]:>12.4f} "
-              f"{row['sharpe']:>10.4f} {row['total_return']:>12.2f}")
+        print(
+            f"{method:<10} {row['allocation']:<12} {row[OPTIMIZATION_METRIC]:>12.4f} "
+            f"{row['sharpe']:>10.4f} {row['total_return']:>12.2f}"
+        )
 
     # Comparison by Allocation Strategy
     print("\n  Performance by Allocation Strategy (Best Scoring for Each)")
-    allocation_best = valid_results.groupby('allocation').first().sort_values(by=OPTIMIZATION_METRIC, ascending=False)
-    print(f"\n{'Strategy':<12} {'Best Score':<12} {OPTIMIZATION_METRIC.upper():<12} {'Sharpe':<10} {'Return %':<12}")
+    allocation_best = (
+        valid_results.groupby("allocation")
+        .first()
+        .sort_values(by=OPTIMIZATION_METRIC, ascending=False)
+    )
+    print(
+        f"\n{'Strategy':<12} {'Best Score':<12} {OPTIMIZATION_METRIC.upper():<12} {'Sharpe':<10} {'Return %':<12}"
+    )
     print(f"{'-'*12} {'-'*12} {'-'*12} {'-'*10} {'-'*12}")
     for strategy, row in allocation_best.iterrows():
-        print(f"{strategy:<12} {row['scoring']:<12} {row[OPTIMIZATION_METRIC]:>12.4f} "
-              f"{row['sharpe']:>10.4f} {row['total_return']:>12.2f}")
+        print(
+            f"{strategy:<12} {row['scoring']:<12} {row[OPTIMIZATION_METRIC]:>12.4f} "
+            f"{row['sharpe']:>10.4f} {row['total_return']:>12.2f}"
+        )
 
     # Store best combination for use in OOS evaluation
-    best_scoring = best['scoring']
-    best_allocation = best['allocation']
+    best_scoring = best["scoring"]
+    best_allocation = best["allocation"]
 
-# =========================
+# =============================================================
 # 7. Out-of-sample evaluation
-# =========================
+# =============================================================
 
 print("=" * 80)
 print("OUT-OF-SAMPLE EVALUATION")
@@ -1684,19 +1777,23 @@ oos_df["linear_signal_long"] = oos_df["expected_return"] > 0
 oos_df["linear_signal_short"] = oos_df["expected_return"] < 0
 
 # Agreement masks
-oos_df["agreed_long"] = (
-    oos_df["logistic_signal_long"] & oos_df["linear_signal_long"]
-)
-oos_df["agreed_short"] = (
-    oos_df["logistic_signal_short"] & oos_df["linear_signal_short"]
-)
+oos_df["agreed_long"] = oos_df["logistic_signal_long"] & oos_df["linear_signal_long"]
+oos_df["agreed_short"] = oos_df["logistic_signal_short"] & oos_df["linear_signal_short"]
 oos_df["agreed_any"] = oos_df["agreed_long"] | oos_df["agreed_short"]
 oos_df["disagreed"] = ~oos_df["agreed_any"]
 
-print(f"   Both agree LONG:  {oos_df['agreed_long'].sum():>6,} ({oos_df['agreed_long'].mean()*100:>5.1f}%)")
-print(f"   Both agree SHORT: {oos_df['agreed_short'].sum():>6,} ({oos_df['agreed_short'].mean()*100:>5.1f}%)")
-print(f"   Total Agreement:  {oos_df['agreed_any'].sum():>6,} ({oos_df['agreed_any'].mean()*100:>5.1f}%)")
-print(f"   Disagreement:     {oos_df['disagreed'].sum():>6,} ({oos_df['disagreed'].mean()*100:>5.1f}%)")
+print(
+    f"   Both agree LONG:  {oos_df['agreed_long'].sum():>6,} ({oos_df['agreed_long'].mean()*100:>5.1f}%)"
+)
+print(
+    f"   Both agree SHORT: {oos_df['agreed_short'].sum():>6,} ({oos_df['agreed_short'].mean()*100:>5.1f}%)"
+)
+print(
+    f"   Total Agreement:  {oos_df['agreed_any'].sum():>6,} ({oos_df['agreed_any'].mean()*100:>5.1f}%)"
+)
+print(
+    f"   Disagreement:     {oos_df['disagreed'].sum():>6,} ({oos_df['disagreed'].mean()*100:>5.1f}%)"
+)
 
 # 7.5 Calculate All Scoring Methods on OOS Data
 print("\n" + "=" * 80)
@@ -1710,6 +1807,7 @@ mu = oos_df["expected_return"]
 # Apply same preprocessing as in Section 6.1
 # Winsorization
 if USE_WINSORIZATION:
+
     def winsorize_cross_sectional(series, limits):
         lower, upper = limits
         q_lower = series.quantile(lower)
@@ -1728,6 +1826,7 @@ else:
 
 # Cross-sectional standardization
 if USE_CROSS_SECTIONAL_STANDARDIZATION:
+
     def z_score_cross_sectional(series):
         mean = series.mean()
         std = series.std()
@@ -1765,7 +1864,15 @@ oos_df["score_S7"] = (p_processed * mu_processed) / (oos_df["volatility"] + 1e-8
 print("   All scoring methods calculated")
 
 # Ensemble filter: set scores to 0 where models disagree
-for score_col in ["score_S1", "score_S2", "score_S3", "score_S4", "score_S5", "score_S6", "score_S7"]:
+for score_col in [
+    "score_S1",
+    "score_S2",
+    "score_S3",
+    "score_S4",
+    "score_S5",
+    "score_S6",
+    "score_S7",
+]:
     oos_df.loc[oos_df["disagreed"], score_col] = 0.0
 
 print("   Ensemble filter applied (scores set to 0 for disagreements)")
@@ -1778,14 +1885,17 @@ print(f"   New columns added: {len([c for c in oos_df.columns if 'score_' in c o
 
 print("\nApplying Optimal Strategy from Section 6.3\n")
 
-if 'best_scoring' not in locals() or 'best_allocation' not in locals():
+if "best_scoring" not in locals() or "best_allocation" not in locals():
     print("WARNING: Optimization results not found! Using default: S2 + A2")
     best_scoring = "S2"
     best_allocation = "A2"
 
 print("Optimal Combination:")
 print(f"  Scoring Method:      {best_scoring} - {SCORING_DESCRIPTIONS.get(best_scoring, 'N/A')}")
-print(f"  Allocation Strategy: {best_allocation} - {ALLOCATION_DESCRIPTIONS.get(best_allocation, 'N/A')}")
+print(
+    f"  Allocation Strategy: {best_allocation} - {ALLOCATION_DESCRIPTIONS.get(best_allocation, 'N/A')}"
+)
+
 
 # Helper to apply strategy on OOS and compute metrics
 def apply_strategy_oos(df_oos, scoring_method, allocation_strategy, label="Strategy"):
@@ -1809,19 +1919,19 @@ def apply_strategy_oos(df_oos, scoring_method, allocation_strategy, label="Strat
         expected_returns = date_df["expected_return"]
 
         alloc_params = {
-            'long_target': LONG_TARGET,
-            'short_target': SHORT_TARGET,
-            'max_position_size': MAX_POSITION_SIZE,
+            "long_target": LONG_TARGET,
+            "short_target": SHORT_TARGET,
+            "max_position_size": MAX_POSITION_SIZE,
         }
         if allocation_strategy == "A3":
-            alloc_params['quantile_long_pct'] = QUANTILE_LONG_PCT
-            alloc_params['quantile_short_pct'] = QUANTILE_SHORT_PCT
+            alloc_params["quantile_long_pct"] = QUANTILE_LONG_PCT
+            alloc_params["quantile_short_pct"] = QUANTILE_SHORT_PCT
         elif allocation_strategy == "A4":
-            alloc_params['threshold_percentile'] = LONG_ONLY_THRESHOLD_PERCENTILE
+            alloc_params["threshold_percentile"] = LONG_ONLY_THRESHOLD_PERCENTILE
         elif allocation_strategy == "A8":
-            alloc_params['lambda_param'] = SOFTMAX_LAMBDA
+            alloc_params["lambda_param"] = SOFTMAX_LAMBDA
         elif allocation_strategy == "A9":
-            alloc_params['kelly_fraction'] = KELLY_FRACTION
+            alloc_params["kelly_fraction"] = KELLY_FRACTION
 
         try:
             weights = apply_allocation_strategy(
@@ -1831,7 +1941,7 @@ def apply_strategy_oos(df_oos, scoring_method, allocation_strategy, label="Strat
                 short_mask=short_mask,
                 volatility=volatility,
                 expected_returns=expected_returns,
-                **alloc_params
+                **alloc_params,
             )
             weights_list.append(weights)
         except Exception as e:
@@ -1846,7 +1956,6 @@ def apply_strategy_oos(df_oos, scoring_method, allocation_strategy, label="Strat
         weights_col="portfolio_weights",
         returns_col="adj_prc_logret_lead1",
         date_col="date",
-        stock_col="permno"
     )
     metrics = calculate_performance_metrics(portfolio_returns, rf_rate=0.0)
     equity = calculate_equity_curve(portfolio_returns)
@@ -1871,15 +1980,16 @@ def apply_strategy_oos(df_oos, scoring_method, allocation_strategy, label="Strat
     print(f"   Short Positions:   {n_short:>10,}")
 
     return {
-        'label': label,
-        'scoring': scoring_method,
-        'allocation': allocation_strategy,
-        'metrics': metrics,
-        'returns': portfolio_returns,
-        'equity': equity,
-        'weights': df_oos_copy["portfolio_weights"],
-        'n_trades': n_trades
+        "label": label,
+        "scoring": scoring_method,
+        "allocation": allocation_strategy,
+        "metrics": metrics,
+        "returns": portfolio_returns,
+        "equity": equity,
+        "weights": df_oos_copy["portfolio_weights"],
+        "n_trades": n_trades,
     }
+
 
 # 7.7 Evaluate Optimal Strategy
 print("\n" + "=" * 80)
@@ -1890,7 +2000,7 @@ result_optimal = apply_strategy_oos(
     oos_df,
     scoring_method=best_scoring,
     allocation_strategy=best_allocation,
-    label=f"Optimal ({best_scoring} + {best_allocation})"
+    label=f"Optimal ({best_scoring} + {best_allocation})",
 )
 
 # 7.8 Evaluate Benchmarks
@@ -1901,20 +2011,14 @@ print("=" * 80)
 # Benchmark 1: Naive Baseline (S1 + A1)
 print("\nBenchmark 1: Naive Baseline")
 result_baseline = apply_strategy_oos(
-    oos_df,
-    scoring_method="S1",
-    allocation_strategy="A1",
-    label="Naive Baseline (S1 + A1)"
+    oos_df, scoring_method="S1", allocation_strategy="A1", label="Naive Baseline (S1 + A1)"
 )
 
 # Benchmark 2: Simple Rank-Weighted (S2 + A2)
 if best_scoring != "S2" or best_allocation != "A2":
     print("\nBenchmark 2: Standard Approach")
     result_standard = apply_strategy_oos(
-        oos_df,
-        scoring_method="S2",
-        allocation_strategy="A2",
-        label="Standard (S2 + A2)"
+        oos_df, scoring_method="S2", allocation_strategy="A2", label="Standard (S2 + A2)"
     )
 else:
     result_standard = None
@@ -1926,40 +2030,46 @@ print("COMPREHENSIVE COMPARISON")
 print("=" * 80)
 
 comparison_data = []
-comparison_data.append({
-    'Strategy': result_optimal['label'],
-    'Total Return %': result_optimal['metrics']['total_return'],
-    'Ann. Return %': result_optimal['metrics']['ann_return'],
-    'Ann. Vol %': result_optimal['metrics']['ann_vol'],
-    'Sharpe': result_optimal['metrics']['sharpe'],
-    'Sortino': result_optimal['metrics']['sortino'],
-    'Max DD %': result_optimal['metrics']['max_drawdown'],
-    'Win Rate %': result_optimal['metrics']['win_rate'],
-    'Trades': result_optimal['n_trades']
-})
-comparison_data.append({
-    'Strategy': result_baseline['label'],
-    'Total Return %': result_baseline['metrics']['total_return'],
-    'Ann. Return %': result_baseline['metrics']['ann_return'],
-    'Ann. Vol %': result_baseline['metrics']['ann_vol'],
-    'Sharpe': result_baseline['metrics']['sharpe'],
-    'Sortino': result_baseline['metrics']['sortino'],
-    'Max DD %': result_baseline['metrics']['max_drawdown'],
-    'Win Rate %': result_baseline['metrics']['win_rate'],
-    'Trades': result_baseline['n_trades']
-})
+comparison_data.append(
+    {
+        "Strategy": result_optimal["label"],
+        "Total Return %": result_optimal["metrics"]["total_return"],
+        "Ann. Return %": result_optimal["metrics"]["ann_return"],
+        "Ann. Vol %": result_optimal["metrics"]["ann_vol"],
+        "Sharpe": result_optimal["metrics"]["sharpe"],
+        "Sortino": result_optimal["metrics"]["sortino"],
+        "Max DD %": result_optimal["metrics"]["max_drawdown"],
+        "Win Rate %": result_optimal["metrics"]["win_rate"],
+        "Trades": result_optimal["n_trades"],
+    }
+)
+comparison_data.append(
+    {
+        "Strategy": result_baseline["label"],
+        "Total Return %": result_baseline["metrics"]["total_return"],
+        "Ann. Return %": result_baseline["metrics"]["ann_return"],
+        "Ann. Vol %": result_baseline["metrics"]["ann_vol"],
+        "Sharpe": result_baseline["metrics"]["sharpe"],
+        "Sortino": result_baseline["metrics"]["sortino"],
+        "Max DD %": result_baseline["metrics"]["max_drawdown"],
+        "Win Rate %": result_baseline["metrics"]["win_rate"],
+        "Trades": result_baseline["n_trades"],
+    }
+)
 if result_standard is not None:
-    comparison_data.append({
-        'Strategy': result_standard['label'],
-        'Total Return %': result_standard['metrics']['total_return'],
-        'Ann. Return %': result_standard['metrics']['ann_return'],
-        'Ann. Vol %': result_standard['metrics']['ann_vol'],
-        'Sharpe': result_standard['metrics']['sharpe'],
-        'Sortino': result_standard['metrics']['sortino'],
-        'Max DD %': result_standard['metrics']['max_drawdown'],
-        'Win Rate %': result_standard['metrics']['win_rate'],
-        'Trades': result_standard['n_trades']
-    })
+    comparison_data.append(
+        {
+            "Strategy": result_standard["label"],
+            "Total Return %": result_standard["metrics"]["total_return"],
+            "Ann. Return %": result_standard["metrics"]["ann_return"],
+            "Ann. Vol %": result_standard["metrics"]["ann_vol"],
+            "Sharpe": result_standard["metrics"]["sharpe"],
+            "Sortino": result_standard["metrics"]["sortino"],
+            "Max DD %": result_standard["metrics"]["max_drawdown"],
+            "Win Rate %": result_standard["metrics"]["win_rate"],
+            "Trades": result_standard["n_trades"],
+        }
+    )
 
 comparison_df = pd.DataFrame(comparison_data)
 
@@ -1967,13 +2077,15 @@ print("\nPerformance Comparison Table:\n")
 print(comparison_df.to_string(index=False))
 
 # Improvement vs baseline
-baseline_sharpe = result_baseline['metrics']['sharpe']
-optimal_sharpe = result_optimal['metrics']['sharpe']
+baseline_sharpe = result_baseline["metrics"]["sharpe"]
+optimal_sharpe = result_optimal["metrics"]["sharpe"]
 sharpe_improvement = optimal_sharpe - baseline_sharpe
-sharpe_improvement_pct = (sharpe_improvement / abs(baseline_sharpe) * 100) if baseline_sharpe != 0 else 0
+sharpe_improvement_pct = (
+    (sharpe_improvement / abs(baseline_sharpe) * 100) if baseline_sharpe != 0 else 0
+)
 
-baseline_return = result_baseline['metrics']['total_return']
-optimal_return = result_optimal['metrics']['total_return']
+baseline_return = result_baseline["metrics"]["total_return"]
+optimal_return = result_optimal["metrics"]["total_return"]
 return_improvement = optimal_return - baseline_return
 
 print("\nOptimal vs Baseline:")
@@ -1989,9 +2101,9 @@ if result_standard is not None:
 print("\nOOS Evaluation Complete!")
 print("   Results stored in: oos_result_optimal, oos_result_baseline")
 
-# =========================
+# =============================================================
 # 8. Output Generation
-# =========================
+# =============================================================
 
 print("OUTPUT GENERATION: QuantStats HTML Reports")
 
@@ -1999,16 +2111,16 @@ print("OUTPUT GENERATION: QuantStats HTML Reports")
 GENERATE_OPTIMAL_REPORT = True
 GENERATE_BASELINE_REPORT = False
 GENERATE_STANDARD_REPORT = False
-OUTPUT_DIR = "out"
+OUTPUT_DIR = "outputs"
 
 # Check Required Variables
 print("\nChecking Required Variables")
 required_vars = {
-    'oos_result_optimal': 'oos_result_optimal',
-    'oos_df': 'oos_df',
-    'dates_out_sample': 'dates_out_sample',
-    'best_scoring': 'best_scoring',
-    'best_allocation': 'best_allocation'
+    "oos_result_optimal": "oos_result_optimal",
+    "oos_df": "oos_df",
+    "dates_out_sample": "dates_out_sample",
+    "best_scoring": "best_scoring",
+    "best_allocation": "best_allocation",
 }
 missing_vars = []
 for var_name, display_name in required_vars.items():
@@ -2050,7 +2162,7 @@ if GENERATE_OPTIMAL_REPORT:
         dates_out_sample=dates_out_sample,
         output_path=output_path_optimal,
         report_title=report_title_optimal,
-        output_dir=OUTPUT_DIR
+        output_dir=OUTPUT_DIR,
     )
 
     print("\nOptimal strategy report generated.")
@@ -2061,7 +2173,7 @@ if GENERATE_BASELINE_REPORT:
     print("Generating Report: Baseline Strategy")
     print("=" * 80)
 
-    if 'oos_result_baseline' not in locals() and 'oos_result_baseline' not in globals():
+    if "oos_result_baseline" not in locals() and "oos_result_baseline" not in globals():
         print("   oos_result_baseline not found. Skipping baseline report.")
     else:
         output_path_baseline = os.path.join(OUTPUT_DIR, "oos_baseline_tearsheet.html")
@@ -2075,7 +2187,7 @@ if GENERATE_BASELINE_REPORT:
             dates_out_sample=dates_out_sample,
             output_path=output_path_baseline,
             report_title=report_title_baseline,
-            output_dir=OUTPUT_DIR
+            output_dir=OUTPUT_DIR,
         )
         print("\nBaseline report generated.")
 
@@ -2085,7 +2197,7 @@ if GENERATE_STANDARD_REPORT:
     print("Generating Report: Standard Approach")
     print("=" * 80)
 
-    if 'oos_result_standard' not in locals() and 'oos_result_standard' not in globals():
+    if "oos_result_standard" not in locals() and "oos_result_standard" not in globals():
         print("   oos_result_standard not found. Skipping standard report.")
     else:
         output_path_standard = os.path.join(OUTPUT_DIR, "oos_standard_tearsheet.html")
@@ -2099,7 +2211,7 @@ if GENERATE_STANDARD_REPORT:
             dates_out_sample=dates_out_sample,
             output_path=output_path_standard,
             report_title=report_title_standard,
-            output_dir=OUTPUT_DIR
+            output_dir=OUTPUT_DIR,
         )
         print("\nStandard approach report generated.")
 
@@ -2110,10 +2222,16 @@ print("\n  Reports Generated:")
 
 reports_generated = []
 if GENERATE_OPTIMAL_REPORT:
-    reports_generated.append(("oos_optimal_tearsheet.html", "Optimal Strategy", best_scoring, best_allocation))
-if (GENERATE_BASELINE_REPORT and ('oos_result_baseline' in locals() or 'oos_result_baseline' in globals())):
+    reports_generated.append(
+        ("oos_optimal_tearsheet.html", "Optimal Strategy", best_scoring, best_allocation)
+    )
+if GENERATE_BASELINE_REPORT and (
+    "oos_result_baseline" in locals() or "oos_result_baseline" in globals()
+):
     reports_generated.append(("oos_baseline_tearsheet.html", "Baseline", "S1", "A1"))
-if (GENERATE_STANDARD_REPORT and ('oos_result_standard' in locals() or 'oos_result_standard' in globals())):
+if GENERATE_STANDARD_REPORT and (
+    "oos_result_standard" in locals() or "oos_result_standard" in globals()
+):
     reports_generated.append(("oos_standard_tearsheet.html", "Standard", "S2", "A2"))
 
 for i, (filename, label, scoring, allocation) in enumerate(reports_generated, 1):
@@ -2129,7 +2247,3 @@ for i, (filename, label, scoring, allocation) in enumerate(reports_generated, 1)
 
 if not reports_generated:
     print("\n   No reports were generated. Check configuration flags.")
-
-# To view reports (open paths below in your shell):
-#   - Windows: start out/oos_optimal_tearsheet.html
-#   - Mac/Linux: open out/oos_optimal_tearsheet.html

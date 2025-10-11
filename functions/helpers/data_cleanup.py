@@ -298,9 +298,9 @@ def pre_qa_dsf(dsf: pd.DataFrame) -> None:
     if (dsf["cfacshr"] < 0).any():
         raise ValueError("dsf: cfacshr < 0 (unexpected).")
 
-    if (dsf["cfacpr"] == 0).any():
+    if (dsf["cfacpr"] == 0).any():  # noqa
         print("[warn] dsf: some rows have zero cfacpr.")
-    if (dsf["cfacshr"] == 0).any():
+    if (dsf["cfacshr"] == 0).any():  # noqa
         print("[warn] dsf: some rows have zero cfacshr.")
 
     n_neg = int((dsf["prc"] < 0).sum())
@@ -332,7 +332,7 @@ def _handle_zero_cfa_factors(df: pd.DataFrame, grouper) -> pd.DataFrame:
     removed_permnos = [
         permno
         for permno, group in grouper
-        if (group["cfacpr"] == 0).any() or (group["cfacshr"] == 0).any()
+        if (group["cfacpr"] == 0).any() or (group["cfacshr"] == 0).any()  # noqa
     ]
     print(
         f"[info] Removed {len(removed_permnos)} permnos(companies) for having zero in cfacpr or cfacshr"
@@ -475,7 +475,9 @@ def pre_qa_stocknames(sn: pd.DataFrame) -> None:
             g2["nameenddt"] if "nameenddt" in g2.columns else g2["nameenddt_eff"]
         )
         g2 = g2.sort_values("namedt")
-        if len(g2) > 1 and (g2["namedt"].values[1:] <= g2["nameenddt_eff"].values[:-1]).any():
+        if (
+            len(g2) > 1 and (g2["namedt"].values[1:] <= g2["nameenddt_eff"].values[:-1]).any()
+        ):  # noqa
             overlaps += 1
 
     if overlaps:

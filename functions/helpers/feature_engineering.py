@@ -55,26 +55,26 @@ def _add_technical_indicators(
     date_idx: str = "date",
     prefix: str = "ti_",
     # Params
-    rsi_periods: list[int] = [14],
-    atr_periods: list[int] = [14, 7],
+    rsi_periods: list[int] = [14],  # noqa
+    atr_periods: list[int] = [14, 7],  # noqa
     macd_fast: int = 12,
     macd_slow: int = 26,
     macd_signal: int = 9,
     bb_period: int = 20,
     bb_std: float = 2.0,
-    mfi_periods: list[int] = [14],
-    adx_periods: list[int] = [14],
+    mfi_periods: list[int] = [14],  # noqa
+    adx_periods: list[int] = [14],  # noqa
     psar_step: float = 0.02,
     psar_max: float = 0.2,
-    cmf_periods: list[int] = [20],
-    eom_periods: list[int] = [14],
-    variance_periods: list[int] = [21],
+    cmf_periods: list[int] = [20],  # noqa
+    eom_periods: list[int] = [14],  # noqa
+    variance_periods: list[int] = [21],  # noqa
     stoch_k: int = 14,
     stoch_d: int = 3,
     stoch_smooth: int = 3,
-    skew_periods: list[int] = [63],
-    kurtosis_periods: list[int] = [63],
-    aroon_periods: list[int] = [25],
+    skew_periods: list[int] = [63],  # noqa
+    kurtosis_periods: list[int] = [63],  # noqa
+    aroon_periods: list[int] = [25],  # noqa
 ) -> pd.DataFrame:
     """
     Compute a variety of technical indicators per permno, based on OHLCV data,
@@ -310,22 +310,16 @@ def add_lagged_columns(df: pd.DataFrame, lag_configs: dict) -> pd.DataFrame:
 
 def feature_augmentation(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
-    # ======================================================================================
+
     # 1) add technical indicators on tickers
-    # ======================================================================================
     out = _add_technical_indicators(out)
 
-    # ======================================================================================
     # 2) add technical indicators on common features (indexes and etfs)
-    # ======================================================================================
-
     # the technical indicators only for common features in tickers_list will be added
     tickers_list = ["^VIX", "^GSPC"]
     out = _add_technical_indicators_on_common_features(out, tickers=tickers_list)
 
-    # ======================================================================================
-    # 3) ADD log return columns
-    # ======================================================================================
+    # 3) add log return columns
     # Columns to compute log returns for
     add_log_ret_columns = [
         "adj_prc",
@@ -347,10 +341,7 @@ def feature_augmentation(df: pd.DataFrame) -> pd.DataFrame:
     for col in add_log_ret_columns:
         out[f"{col}_logret"] = np.log(out[col] / out.groupby(level="permno")[col].shift(1))
 
-    # ======================================================================================
-    # 4) ADD meaningful RATIO FEATURES (ALL COLUMNS ASSUMED PRESENT)
-    # ======================================================================================
-
+    # 4) add meaningful ratio features (all columns assumed present)
     # VIX / S&P 500 Ratio: Market Fear Relative to Price Level
     # High ratio = elevated fear relative to market level (crash risk)
     # Low ratio = complacency
@@ -381,10 +372,7 @@ def feature_augmentation(df: pd.DataFrame) -> pd.DataFrame:
         lambda s: s.rolling(20, min_periods=max(1, 20 // 2)).std() * np.sqrt(252)
     )
 
-    # ======================================================================================
     # 5) ADD lagged columns
-    # ======================================================================================
-
     # Columns to add lagged versions of
     lag_configs = {
         # Price & Market Returns (Momentum: 1-day , 5-day = weekly)
@@ -409,9 +397,7 @@ def feature_augmentation(df: pd.DataFrame) -> pd.DataFrame:
     }
     out = add_lagged_columns(out, lag_configs=lag_configs)
 
-    # ======================================================================================
     # 5) ADD lead returns (Target Columns)
-    # ======================================================================================
     lead_periods = [1]  # to forcast 1-day and 5-day(weekly) returns
     for period in lead_periods:
         lead_col = f"adj_prc_logret_lead{period}"
@@ -457,7 +443,6 @@ def build_final_matrix(df: pd.DataFrame) -> pd.DataFrame:
         "ratio_volatility_premium",
         "ratio_beta_proxy",
     ]
-    # Fix: change 'keep_columns' to 'feature_cols'
     feature_cols.extend([f for f in ratio_features if f in df.columns])
 
     # Add IBES consensus and count features
@@ -473,12 +458,10 @@ def build_final_matrix(df: pd.DataFrame) -> pd.DataFrame:
         "cons_cv",
         "cons_range_pct",
     ]
-    # Fix: change 'keep_columns' to 'feature_cols'
     feature_cols.extend([f for f in ibes_features if f in df.columns])
 
     # Add Fama-French factors
     ff_factors = ["mktrf", "smb", "hml", "rf", "umd"]
-    # Fix: change 'keep_columns' to 'feature_cols'
     feature_cols.extend([f for f in ff_factors if f in df.columns])
 
     # Add technical indicators
@@ -486,7 +469,7 @@ def build_final_matrix(df: pd.DataFrame) -> pd.DataFrame:
         if "ti_" in col and col not in feature_cols:
             feature_cols.append(col)
 
-    # === WARNING: Check for duplicates ===
+    # Check for duplicates
     seen = set()
     duplicates = []
     for col in feature_cols:
@@ -496,13 +479,13 @@ def build_final_matrix(df: pd.DataFrame) -> pd.DataFrame:
             seen.add(col)
 
     if duplicates:
-        print(f"⚠️  Warning: Duplicate columns added to feature list: {sorted(set(duplicates))}")
+        print(f"   Warning: Duplicate columns added to feature list: {sorted(set(duplicates))}")
 
-    # === WARNING: Check for missing columns ===
+    # Check for missing columns
     missing = [col for col in feature_cols if col not in df.columns]
     if missing:
         print(
-            f"⚠️  Warning: These feature columns are not in the DataFrame and will be ignored: {sorted(missing)}"
+            f"   Warning: These feature columns are not in the DataFrame and will be ignored: {sorted(missing)}"
         )
 
     # Now remove duplicates and missing (but user sees warning first)

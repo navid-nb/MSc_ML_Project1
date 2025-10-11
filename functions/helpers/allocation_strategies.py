@@ -487,7 +487,7 @@ def strategy_a9_kelly(
     """
     weights = pd.Series(0.0, index=scores.index)
 
-    # Kelly formula: w = f * (μ / σ²)
+    # Kelly formula: w = f * (mu / sigma²)
     sigma_sq = volatility**2
     kelly_weights = kelly_fraction * (expected_returns / (sigma_sq + 1e-8))
     kelly_weights = kelly_weights.clip(lower=-max_position_size, upper=max_position_size)

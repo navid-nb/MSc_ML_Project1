@@ -8,7 +8,7 @@ def list_runs(base_dir: str) -> List[str]:
     """
     List all subdirectories in the base directory whose names start with 'run'.
     Args:
-        basedir (str): The directory path to search for run folders.
+        base_dir (str): The directory path to search for run folders.
 
     Returns:
         List[str]: A sorted list of run folder names within the base directory.
@@ -28,7 +28,7 @@ def latest_run(base_dir: str) -> Optional[str]:
     """
     Return the latest (most recently sorted) run folder name in the base directory.
     Args:
-        basedir (str): The base directory containing run folders.
+        base_dir (str): The base directory containing run folders.
 
     Returns:
         Optional[str]: The name of the latest run folder, or None if none exist.
@@ -70,8 +70,8 @@ def make_run_folder(base_dir: str, use_run: str) -> tuple[str, str, bool]:
     Decide on a run folder name and create the folder if needed.
 
     Args:
-        basedir (str): Base directory to store run folders.
-        userun (str): Controls folder creation:
+        base_dir (str): Base directory to store run folders.
+        use_run (str): Controls folder creation:
             - "new": create a fresh timestamped folder.
             - "last": reuse the most recent run folder if it exists.
             - explicit folder name: use/reuse that folder name.

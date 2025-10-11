@@ -16,7 +16,6 @@ def calculate_portfolio_returns(
     weights_col: str = "portfolio_weights",
     returns_col: str = "adj_prc_logret_lead1",
     date_col: str = "date",
-    stock_col: str = "permno",
 ) -> pd.Series:
     """
     Calculate daily portfolio returns from individual stock weights and returns.
@@ -28,7 +27,6 @@ def calculate_portfolio_returns(
         weights_col: Column name for portfolio weights
         returns_col: Column name for stock returns
         date_col: Name of date index level
-        stock_col: Name of stock index level
 
     Returns:
         Series of daily portfolio returns indexed by date
@@ -203,7 +201,6 @@ def backtest_strategy(
         weights_col="portfolio_weights",
         returns_col=returns_col,
         date_col=date_col,
-        stock_col=stock_col,
     )
 
     # Calculate metrics

@@ -4,7 +4,7 @@ from typing import Literal, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from src.helpers.data_cleanup import (
+from functions.helpers.data_cleanup import (
     clean_dsf,
     ensure_index,
     filter_by_tickers,
@@ -27,8 +27,11 @@ from src.helpers.data_cleanup import (
     prepare_ibes_actu_for_daily_merge,
     prepare_ibes_for_daily_merge,
 )
-from src.helpers.data_extraction import common_features_extract, wrds_extract_raw
-from src.helpers.feature_engineering import build_final_matrix, feature_augmentation
+from functions.helpers.data_extraction import common_features_extract, wrds_extract_raw
+from functions.helpers.feature_engineering import (
+    build_final_matrix,
+    feature_augmentation,
+)
 
 
 def _permno_level_number(df: pd.DataFrame) -> int | None:
@@ -357,13 +360,13 @@ def build_model_matrix_from_wrds(
         end=end,
         chunk_size=chunk_size,
         use_run=use_run,
-        base_dir="wrds_extracts",
+        base_dir="data",
         artifacts=[
-            ("src/migrations/001_base_extract.sql", "dsf.parquet"),
-            ("src/migrations/002_crsp_names.sql", "stocknames.parquet"),
-            ("src/migrations/003_ff_factors.sql", "ff.parquet"),
-            ("src/migrations/004_ibes_statsumu.sql", "ibes_stats.parquet"),
-            ("src/migrations/005_ibes_actu.sql", "ibes_act.parquet"),
+            ("functions/migrations/001_base_extract.sql", "dsf.parquet"),
+            ("functions/migrations/002_crsp_names.sql", "stocknames.parquet"),
+            ("functions/migrations/003_ff_factors.sql", "ff.parquet"),
+            ("functions/migrations/004_ibes_statsumu.sql", "ibes_stats.parquet"),
+            ("functions/migrations/005_ibes_actu.sql", "ibes_act.parquet"),
         ],
     )
     print(res)
@@ -447,6 +450,29 @@ def build_model_matrix_from_wrds(
     print(f"[model] columns={list(model_df.columns)}")
 
     print(null_report(model_df))
+
+    # Ensure all stocks have the same date coverage
+    final_matrix = align_and_fill_dates_across_tickers(all_stocks=model_df)
+
+    # Data quality check: inspect adj_prc_logret_lead1 distribution
+    print("=== Data Quality Check: adj_prc_logret_lead1 ===")
+    print(f"Min value: {final_matrix['adj_prc_logret_lead1'].min():.6f}")
+    print(f"Max value: {final_matrix['adj_prc_logret_lead1'].max():.6f}")
+    print(f"Mean: {final_matrix['adj_prc_logret_lead1'].mean():.6f}")
+    print(f"Median: {final_matrix['adj_prc_logret_lead1'].median():.6f}")
+    print(f"Std Dev: {final_matrix['adj_prc_logret_lead1'].std():.6f}")
+    print(
+        f"\nCount of extreme values (< -1.0): {(final_matrix['adj_prc_logret_lead1'] < -1.0).sum()}"
+    )
+    print(f"Count of extreme values (> 1.0): {(final_matrix['adj_prc_logret_lead1'] > 1.0).sum()}")
+
+    # Show rows with suspicious minimum values
+    suspicious_rows = final_matrix[final_matrix["adj_prc_logret_lead1"] < -1.0].sort_values(
+        "adj_prc_logret_lead1"
+    )
+    if len(suspicious_rows) > 0:
+        print("\n=== Suspicious rows with adj_prc_logret_lead1 < -1.0 ===")
+        print(suspicious_rows[["ticker", "adj_prc_logret_lead1"]].head(10))
 
     return model_df
 

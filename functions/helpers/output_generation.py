@@ -1,6 +1,6 @@
 import quantstats as qs
 
-from src.helpers._extract import ensure_dir
+from functions.helpers._extract import ensure_dir
 
 
 def make_qs_report_from_equity(equity_series, rf_series, mktrf_series, title, out_path):
@@ -45,9 +45,9 @@ def generate_oos_report(
     portfolio_result,
     oos_df,
     dates_out_sample,
-    output_path="out/oos_long_short_tearsheet.html",
+    output_path="outputs/oos_long_short_tearsheet.html",
     report_title=None,
-    output_dir="out",
+    output_dir="outputs",
 ):
     """
     Generate an out-of-sample HTML performance report.

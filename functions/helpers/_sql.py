@@ -12,7 +12,7 @@ def wrds_connect(wrds_user: str) -> wrds.Connection:
     Establish a connection to the WRDS database using the provided username.
 
     Args:
-        wrdsuser (str): WRDS username for authentication.
+        wrds_user (str): WRDS username for authentication.
 
     Returns:
         wrds.Connection: An active connection object to the WRDS database.
@@ -32,10 +32,10 @@ def query_to_parquet(
 
     Args:
         conn (wrds.Connection): Active WRDS connection object.
-        sqlpath (str): Path to SQL file containing the query.
-        outpath (str): Destination filepath for the Parquet output.
+        sql_path (str): Path to SQL file containing the query.
+        out_path (str): Destination filepath for the Parquet output.
         params (Optional[Dict[str, Any]]): Dictionary of SQL parameters, if required.
-        chunksize (int): Number of rows per chunk for processing large results.
+        chunk_size (int): Number of rows per chunk for processing large results.
 
     Returns:
         None
@@ -69,7 +69,7 @@ def extract_artifacts(
         artifacts (List[tuple]): List of (SQL file path, output filename) pairs.
         outdir (str): Directory to save Parquet outputs.
         params (Optional[Dict[str, Any]]): Parameters to use in SQL queries.
-        chunksize (int): Row count per chunk for extraction.
+        chunk_size (int): Row count per chunk for extraction.
         force (bool): If True, overwrite existing files; If False, skip files that already exist (not used in this flow).
 
     Returns:
