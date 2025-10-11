@@ -19,6 +19,8 @@
 
 ## Quick Start (no venv activation needed)
 
+Navigate to project root directory and run:
+
 **macOS/Linux**
 ```bash
 python3.10 run_install_packages.py
