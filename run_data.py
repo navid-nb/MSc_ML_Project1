@@ -431,8 +431,6 @@ def build_model_matrix_from_raw_data(
     print(f"[model] index={list(model_df.index.names)}")
     print(f"[model] columns={list(model_df.columns)}")
 
-    print(null_report(model_df))
-
     # Ensure all stocks have the same date coverage
     final_matrix = align_and_fill_dates_across_tickers(all_stocks=model_df)
 
@@ -456,7 +454,7 @@ def build_model_matrix_from_raw_data(
         print("\n=== Suspicious rows with adj_prc_logret_lead1 < -1.0 ===")
         print(suspicious_rows[["ticker", "adj_prc_logret_lead1"]].head(10))
 
-    return model_df
+    return final_matrix
 
 
 def trim_to_divisible_by_252(df: pd.DataFrame) -> pd.DataFrame:
