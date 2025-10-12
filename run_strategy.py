@@ -43,14 +43,14 @@ df = build_model_matrix_from_raw_data(
     raw_data=raw_data,
     tickers=[
         "AAPL", "NVDA", "MSFT", "AMZN", "TSLA", "GOOGL", "LLY", "WMT", "JPM", "BRK-B",
-        # 'V', 'MA', 'XOM', 'ORCL', 'UNH', 'COST', 'PG', 'HD', 'NFLX',
-        # 'JNJ', 'BAC', 'CRM', 'QQQ', 'ABBV', 'KO', 'CVX', 'TMUS', 'MRK', 'CSCO',
-        # 'WFC', 'ACN', 'NOW', 'TSM', 'AXP', 'PEP', 'MCD', 'IBM', 'MS', 'DIS',
-        # 'TMO', 'ABT', 'AMD', 'ADBE', 'PM', 'ISRG', 'GE', 'GS', 'INTU', 'CAT',
-        # 'TXN', 'QCOM', 'RY', 'VZ', 'DHR', 'BKNG', 'T', 'BLK', 'SPGI',
-        # 'RTX', 'PFE', 'NEE', 'HON', 'CMCSA', 'PGR', 'AMGN', 'LOW', 'ANET', 'UNP',
-        # 'SYK', 'TJX', 'C', 'BA', 'SCHW', 'BSX', 'KKR', 'ETN',
-        # 'COP', 'BX', 'PANW', 'ADP'
+        "V", "MA", "XOM", "ORCL", "UNH", "COST", "PG", "HD", "NFLX",
+        "JNJ", "BAC", "CRM", "QQQ", "ABBV", "KO", "CVX", "TMUS", "MRK", "CSCO",
+        "WFC", "ACN", "NOW", "TSM", "AXP", "PEP", "MCD", "IBM", "MS", "DIS",
+        "TMO", "ABT", "AMD", "ADBE", "PM", "ISRG", "GE", "GS", "INTU", "CAT",
+        "TXN", "QCOM", "RY", "VZ", "DHR", "BKNG", "T", "BLK", "SPGI",
+        "RTX", "PFE", "NEE", "HON", "CMCSA", "PGR", "AMGN", "LOW", "ANET", "UNP",
+        "SYK", "TJX", "C", "BA", "SCHW", "BSX", "KKR", "ETN",
+        "COP", "BX", "PANW", "ADP"
     ],
 )
 
@@ -120,7 +120,7 @@ y_log_ins = DIR_binary[df.index.get_level_values("date").isin(ins_dates)]
 if HYPERPARAMETER_TUNING:
     # Run hyperparameter tuning via cross-validation
     l1_ratios = [0.7, 0.8, 0.9]  # 4 values from 0 to 1 inclusive
-    C = 1.0
+    C = 0.1
     print(f"Testing {len(l1_ratios)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios):.3f}, {max(l1_ratios):.3f}]")
 
@@ -330,7 +330,7 @@ y_lin_ins = df_ins["adj_prc_logret_lead1"]
 # Define l1_ratio grid (l1_ratio bounded [0, 1])
 if HYPERPARAMETER_TUNING_LINEAR:
     # Run hyperparameter tuning via cross-validation
-    l1_ratios_lin = [0.5, 0.6, 0,7]  # 4 values from 0 to 1 inclusive
+    l1_ratios_lin = [0.5, 0.6, 0.7]  # 4 values from 0 to 1 inclusive
     alpha_fixed = 0.001  # Fixed regularization strength
     print(f"Testing {len(l1_ratios_lin)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios_lin):.3f}, {max(l1_ratios_lin):.3f}]")
