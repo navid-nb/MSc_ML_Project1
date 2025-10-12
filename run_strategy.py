@@ -505,6 +505,14 @@ print(coef_df_lin.head(10).to_string(index=False))
 # 5. Signal Confirmation & Trading Universe Selection
 # =============================================================
 
+# notes:
+# - the models (final_pipeline_log / final_pipeline_lin) were FIT earlier using
+#   the in-sample (IS) data only. No fitting happens here.
+# - Below, we score the entire dataset (IS + OOS) with those fixed in-sample fit
+#   models. this is safe because scoring does not update model parameters.
+# - next sections explicitly slice by date (ins_dates vs dates_out_sample)
+#   when selecting strategies (Section 6) and evaluating out-of-sample (Section 7).
+
 # Configuration: Thresholds for signal generation
 # Logistic: LONG if prob_up > threshold; SHORT if prob_up < (1 - threshold)
 # Linear: LONG if expected_return > threshold; SHORT if expected_return < -threshold
@@ -513,7 +521,9 @@ PROB_UP_THRESHOLD_SHORT = 0.55
 EXPECTED_RETURN_THRESHOLD_LONG = 0.001
 EXPECTED_RETURN_THRESHOLD_SHORT = 0.001
 
-# Generate predictions for all data (in-sample + out-of-sample)
+# Scoring with fixed in-sample fit models
+# We use the IS-fit scaler + coefficients inside the pipelines to transform/score
+# every row.
 X_full_logistic = df[num_pred_cols].copy()
 prob_up_full = final_pipeline_log.predict_proba(X_full_logistic)[:, 1]
 logistic_score_full = 2 * prob_up_full - 1  # Scale to [-1, 1]
@@ -521,7 +531,8 @@ logistic_score_full = 2 * prob_up_full - 1  # Scale to [-1, 1]
 X_full_linear = df[num_pred_cols].copy()
 expected_return_full = final_pipeline_lin.predict(X_full_linear)
 
-# Store predictions in DataFrame
+# store predictions in a single DataFrame for convenience. Downstream code will
+# always slice by date to enforce In-Sample vs OOS separation.
 df_signals = df.copy()
 df_signals["prob_up"] = prob_up_full
 df_signals["prob_down"] = 1 - prob_up_full
@@ -548,7 +559,7 @@ df_signals["ensemble_score"] = df_signals["logistic_score"].copy()
 df_signals.loc[df_signals["disagreed"], "ensemble_score"] = 0.0
 
 # ============================================================================
-# Output 1: Agreement Statistics
+# Output 1: Agreement Statistics (over the combined IS+OOS container)
 # ============================================================================
 print("=" * 80)
 print("Ensemble Agreement (Both Models Must Agree)")
@@ -593,13 +604,6 @@ if len(short_universe) > 0:
     print(f"   Mean ensemble score: {short_universe['ensemble_score'].mean():.4f}")
 else:
     print("   (No short candidates)")
-
-
-# Variables created for downstream use:
-# - df_signals:       Full DataFrame with predictions, signals, and ensemble_score
-# - long_universe:    Filtered DataFrame for long candidates
-# - short_universe:   Filtered DataFrame for short candidates
-# - excluded_universe: Filtered DataFrame for disagreements (not traded)
 
 # =============================================================
 # 6. Strategy Selection (In-Sample Performance)
@@ -871,7 +875,7 @@ if len(errors) > 0:
 # CONTROL PARAMETER: Choose evaluation and output scope
 # This controls BOTH Section 7 (evaluation) AND Section 9 (report generation)
 # Options: "optimal" (best strategy only), "top5" (top 5 strategies), "all" (all 15 combinations)
-EVALUATION_SCOPE = "optimal"  # Change to "top5" or "all" to evaluate/output multiple strategies
+EVALUATION_SCOPE = "top5"  # Change to "top5" or "all" to evaluate/output multiple strategies
 
 print("=" * 80)
 print("OUT-OF-SAMPLE EVALUATION")
