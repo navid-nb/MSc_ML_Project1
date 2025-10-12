@@ -120,422 +120,188 @@ print(f" Total:    {len(DIR_binary):,} observations")
 num_pred_cols = [c for c in df.columns if c not in (["ticker", "adj_prc_logret_lead1"])]
 print(f"\nUsing {len(num_pred_cols)} features for prediction")
 
-# 3.2 Hyperparameter tuning: logistic regression + ElasticNet
+# =============================================================
+# 3.2 Hyperparameter Tuning - L1 Ratio Grid
+# =============================================================
 
-# ElasticNet Hyperparameters and Pipeline Configuration (prints converted to comments)
-# HYPERPARAMETER TUNING CONFIGURATION
-# Toggle between hardcoded hyperparameters (fast) and grid search tuning (slow)
-TUNE_HYPERPARAMETERS = False  # Set to True to enable full grid search, False for hardcoded values
+# Control variable for hyperparameter tuning
+HYPERPARAMETER_TUNING = False  # Set to False to use hardcoded l1_ratio=0.7
 
-# Hardcoded hyperparameters (used when TUNE_HYPERPARAMETERS = False)
-ELASTICNET_C = 0.1  # Inverse of regularization strength
-ELASTICNET_L1_RATIO = 0.7  # L1/L2 tradeoff (0 ridge, 1 lasso)
+# Prepare data for logistic regression (use only in-sample data)
+df_ins = df[df.index.get_level_values('date').isin(ins_dates)]
+X_log_ins = df_ins[num_pred_cols]
+y_log_ins = DIR_binary[df.index.get_level_values('date').isin(ins_dates)]
 
-# Grid search ranges (used when TUNE_HYPERPARAMETERS = True)
-param_grid = {
-    "clf__C": [0.01, 0.1, 1, 10],
-    "clf__l1_ratio": [0.3, 0.5, 0.7],
-}
-
-# Preprocessing: Standardize features
-ct = ColumnTransformer(
-    [
-        (
-            "num",  # numerical
-            # scales each feature so ElasticNet penalty treats them similarly (avoid leakage)
-            StandardScaler(with_mean=True),
-            num_pred_cols,  # only numerical columns
-        )
-    ],
-    remainder="drop",  # columns not listed are dropped
-    sparse_threshold=0.0,  # force dense for feature importance
-)
-
-# Classifier with ElasticNet regularization
-clf = LogisticRegression(
-    penalty="elasticnet",  # Use ElasticNet (L1 + L2)
-    solver="saga",  # Only solver supporting elasticnet
-    l1_ratio=ELASTICNET_L1_RATIO,  # Mix of L1 and L2
-    C=ELASTICNET_C,  # Regularization strength
-    max_iter=5000,  # More iterations for convergence
-    tol=1e-4,
-    random_state=random_state,
-    n_jobs=-1,  # Use all CPUs
-)
-
-# Pipeline: preprocessing to classification
-pipe = Pipeline([("prep", ct), ("clf", clf)])
-
-# 3.3 Rolling training & feature selection per fold (Model Selection and Cross-Validation)
-
-print("Rolling Window Training With Feature Selection (In-Sample Only)")
-
-pred_prob_up_new = pd.Series(index=df.index, dtype=float)
-pred_prob_down_new = pd.Series(index=df.index, dtype=float)
-pred_score_new = pd.Series(index=df.index, dtype=float)
-pred_class_new = pd.Series(index=df.index, dtype=int)
-used_mask_new = pd.Series(False, index=df.index)
-
-# Track feature selection across windows
-feature_selection_history = []
-
-window_num = 0
-start_pos = 0
-
-while start_pos + ins_training_window_size + ins_validation_window_size <= len(ins_dates):
-    window_num += 1
-
-    train_dates = ins_dates[start_pos : start_pos + ins_training_window_size]
-    valid_dates = ins_dates[
-        start_pos
-        + ins_training_window_size : start_pos
-        + ins_training_window_size
-        + ins_validation_window_size
-    ]
-
-    print(f"\nWindow {window_num}: {train_dates.min().date()} to {valid_dates.max().date()}")
-
-    start_pos += step_size
-
-    idx_tr = df.index.get_level_values("date").isin(train_dates)
-    idx_va = df.index.get_level_values("date").isin(valid_dates)
-
-    X_tr = df.loc[idx_tr, num_pred_cols]
-    y_tr = DIR_binary.loc[idx_tr]
-    X_va = df.loc[idx_va, num_pred_cols]
-    y_va = DIR_binary.loc[idx_va]
-    groups_ins = X_tr.index.get_level_values("date")
-
-    # Conditional hyperparameter tuning based on TUNE_HYPERPARAMETERS flag
-    if TUNE_HYPERPARAMETERS:
-        gs = GridSearchCV(
-            estimator=pipe,
-            param_grid=param_grid,
-            scoring="neg_log_loss",  # minimize log loss (cross-entropy)
-            cv=GroupKFold(n_splits=3),
-            n_jobs=-1,
-            refit=True,
-        )
-        gs.fit(X_tr, y_tr, groups=groups_ins)
-        pipe_best = gs.best_estimator_
-        best_C = gs.best_params_["clf__C"]
-        best_l1 = gs.best_params_["clf__l1_ratio"]
-        cv_score = gs.best_score_
-    else:
-        # Use hardcoded hyperparameters (faster)
-        pipe_best = clone(pipe)  # Create fresh copy to avoid reusing fitted scaler
-        pipe_best.fit(X_tr, y_tr)  # noqa
-        best_C = ELASTICNET_C
-        best_l1 = ELASTICNET_L1_RATIO
-        cv_score = None  # No CV score when not tuning
-
-    # Validation log loss report
-    p_up_val = pipe_best.predict_proba(X_va)[:, 1]
-    val_log_loss = log_loss(y_va, pipe_best.predict_proba(X_va))
-    print(f"   Best params: C={best_C}, l1={best_l1}")
-    print(f"   Validation Log Loss: {val_log_loss:.4f}")
-    if cv_score is not None:
-        print(f"   Train (CV) Log Loss: {-cv_score:.4f}")
-
-    # Feature Selection Analysis (from tuned model)
-    coef = pipe_best.named_steps["clf"].coef_[0]
-
-    feature_importance = pd.DataFrame(
-        {"feature": num_pred_cols, "coefficient": coef, "abs_coefficient": np.abs(coef)}
-    )
-
-    ZERO_THRESHOLD = 1e-5
-    selected_features = feature_importance[feature_importance["abs_coefficient"] > ZERO_THRESHOLD]
-    n_selected = len(selected_features)
-    pct_selected = (n_selected / len(num_pred_cols)) * 100
-
-    top_features = selected_features.nlargest(10, "abs_coefficient")
-
-    feature_selection_history.append(
-        {
-            "window": window_num,
-            "n_features_selected": n_selected,
-            "pct_selected": pct_selected,
-            "selected_features": selected_features["feature"].tolist(),
-            "top_5_features": top_features.head(5)["feature"].tolist(),
-            "train_start": train_dates.min(),
-            "valid_end": valid_dates.max(),
-        }
-    )
-
-    # Predictions from the tuned model
-    proba = pipe_best.predict_proba(X_va)
-    p_down = proba[:, 0]
-    p_up = proba[:, 1]
-    score = 2 * p_up - 1
-    yhat = (p_up > 0.5).astype(int)
-
-    # Store predictions
-    pred_prob_up_new.loc[idx_va] = p_up
-    pred_prob_down_new.loc[idx_va] = p_down
-    pred_score_new.loc[idx_va] = score
-    pred_class_new.loc[idx_va] = yhat
-    used_mask_new.loc[idx_va] = True
-
-    # Report
-    accuracy = (yhat == y_va).mean()  # noqa
-    print(f"Training: {len(X_tr):,} samples")
-    print(f"Validation: {len(X_va):,} samples, Accuracy: {accuracy:.1%}")
-    print("\nFeature Selection:")
-    print(f"   Selected: {n_selected}/{len(num_pred_cols)} features ({pct_selected:.1f}%)")
-    print("   Top 5 features by importance:")
-    for i, row in top_features.head(5).iterrows():
-        print(f"      {i + 1}. {row['feature']}: {row['coefficient']:+.4f}")
-
-print(f"\nTraining complete: {window_num} windows processed")
-print(f"Total validated: {used_mask_new.sum():,} / {len(df):,}")
-
-# Update global predictions with new ones
-pred_prob_up = pred_prob_up_new
-pred_prob_down = pred_prob_down_new
-pred_score = pred_score_new
-pred_class = pred_class_new
-used_mask = used_mask_new
-
-# 3.4 Feature selection across all folds
-
-print("Feature Selection For Final Model (Statistical Stability Testing)")
-# Extract selection information from all windows
-n_windows = len(feature_selection_history)
-feature_counts = {feat: 0 for feat in num_pred_cols}
-
-# Count how many windows each feature was selected in
-for window_info in feature_selection_history:
-    selected_features = window_info["selected_features"]
-    for feat in selected_features:
-        feature_counts[feat] += 1
-
-# Calculate frequency and statistical significance
-feature_freq = pd.DataFrame(
-    [
-        {
-            "feature": feat,
-            "count": count,
-            "frequency": count / n_windows if n_windows > 0 else 0.0,
-            "p_value": (
-                binomtest(count, n_windows, p=0.5, alternative="greater").pvalue
-                if n_windows > 0
-                else 1.0
-            ),
-        }
-        for feat, count in feature_counts.items()
-    ]
-).sort_values("frequency", ascending=False)
-
-# Statistical threshold: Features must be significantly better than random
-SIGNIFICANCE_LEVEL = 0.05  # Standard 5% significance level
-# For multiple testing correction, Bonferroni could be used (commented out)
-
-selected_features_mask = feature_freq["p_value"] < SIGNIFICANCE_LEVEL
-final_feature_list = feature_freq.loc[selected_features_mask, "feature"].tolist()
-
-print("\n  Selection Criterion:")
-print(f"   Statistical significance: alpha = {SIGNIFICANCE_LEVEL}")
-print("   Test: Binomial test against H0: feature selected randomly (p=0.5)")
-
-# Calculate minimum required appearances for significance
-if n_windows > 0:
-    min_appearances_for_sig = min(
-        [
-            i
-            for i in range(n_windows + 1)
-            if binomtest(i, n_windows, 0.5, alternative="greater").pvalue < SIGNIFICANCE_LEVEL
-        ]
-    )
+# Define l1_ratio grid (l1_ratio bounded [0, 1])
+if HYPERPARAMETER_TUNING:
+    # Run hyperparameter tuning via cross-validation
+    l1_ratios = np.linspace(0, 1, 4)  # 4 values from 0 to 1 inclusive
+    C = 1.0
+    print(f"Testing {len(l1_ratios)} l1_ratio values")
+    print(f"L1 ratio range: [{l1_ratios.min():.3f}, {l1_ratios.max():.3f}]")
+    
+    # Store classification error rates for each l1_ratio
+    error_rates = []
+    
+    # Cross-validation loop
+    for idx, l1_ratio in enumerate(l1_ratios):
+        # Progress tracking for l1_ratio
+        print(f"Processing l1_ratio {idx + 1}/{len(l1_ratios)}: {l1_ratio:.3f}")
+        fold_errors = []
+        
+        # Iterate through rolling windows
+        for fold_idx in range(actual_folds):
+            # Progress tracking for folds
+            if fold_idx == 0 or (fold_idx + 1) % 2 == 0:  # Show progress every 2 folds
+                print(f"  Fold {fold_idx + 1}/{actual_folds}", end="... ")
+            
+            # Calculate window indices using the pre-configured parameters
+            start_idx = fold_idx * step_size
+            train_end_idx = start_idx + ins_training_window_size
+            val_end_idx = train_end_idx + ins_validation_window_size
+            
+            # Get date ranges from the in-sample dates
+            train_dates = ins_dates[start_idx:train_end_idx]
+            val_dates = ins_dates[train_end_idx:val_end_idx]
+            
+            # Split data using date filters
+            train_idx = df_ins.index.get_level_values('date').isin(train_dates)
+            val_idx = df_ins.index.get_level_values('date').isin(val_dates)
+            
+            X_train, y_train = X_log_ins[train_idx], y_log_ins[train_idx]
+            X_val, y_val = X_log_ins[val_idx], y_log_ins[val_idx]
+            
+            # Create pipeline with scaling and logistic regression
+            pipeline = Pipeline([
+                ('scaler', StandardScaler()),
+                ('logistic', LogisticRegression(
+                    penalty='elasticnet',
+                    C=1.0,  # C remains constant
+                    l1_ratio=l1_ratio,
+                    solver='saga',
+                    max_iter=5000,
+                    tol=1e-4,
+                    random_state=42
+                ))
+            ])
+            
+            # Fit and predict
+            pipeline.fit(X_train, y_train)
+            y_pred = pipeline.predict(X_val)
+            
+            # Calculate error rate (1 - accuracy)
+            accuracy = (y_pred == y_val).mean()
+            error_rate = 1 - accuracy
+            fold_errors.append(error_rate)
+        
+        # Average error rate across folds
+        avg_error = np.mean(fold_errors)
+        error_rates.append(avg_error)
+        print(f"Completed l1_ratio {idx + 1}/{len(l1_ratios)}")
+    
+    print(f"\nCompleted validation for all {len(l1_ratios)} l1_ratio values")
+    
+    # Find optimal l1_ratio (minimum error rate)
+    optimal_idx = np.argmin(error_rates)
+    l1_ratio_star = l1_ratios[optimal_idx]
+    min_error = error_rates[optimal_idx]
+    
+    print("\nLogistic Regression - Optimal Hyperparameters:")
+    print(f"  l1_ratio* = {l1_ratio_star:.3f}")
+    print(f"  Minimum Average Classification Error Rate = {min_error:.4f}")
+    print(f"  Validation Accuracy = {1 - min_error:.4f}")
+    
+    # Plot error rates vs l1_ratio
+    import matplotlib.pyplot as plt
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(l1_ratios, error_rates, marker='o', markersize=4)
+    plt.axvline(l1_ratio_star, color='r', linestyle='--', label=f'l1_ratio* = {l1_ratio_star:.3f}')
+    plt.xlabel('L1 Ratio')
+    plt.ylabel('Average Classification Error Rate')
+    plt.title('Logistic Regression: Classification Error vs L1 Ratio')
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.show()
+    
 else:
-    min_appearances_for_sig = 0
+    # Use hardcoded l1_ratio value
+    l1_ratio_star = 0.7
+    print(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star}")
 
-print("\n  Statistical Requirement:")
-print(
-    f"   For {n_windows} windows, need >={min_appearances_for_sig}/{n_windows} appearances "
-    f"(>={min_appearances_for_sig/n_windows:.0%} if n_windows>0 else 0%)"
-)
-if n_windows > 0:
-    print(
-        f"   Note: 50% threshold ({n_windows//2}/{n_windows}) has p-value: "
-        f"{binomtest(n_windows//2, n_windows, 0.5, alternative='greater').pvalue:.3f}"
-    )
+# =============================================================
+# 3.3 Final Model Estimation and Out-of-Sample Evaluation
+# =============================================================
 
-print("\n  Results:")
-print(f"   Features selected: {len(final_feature_list)} / {len(num_pred_cols)}")
-print(f"   Features removed:  {len(num_pred_cols) - len(final_feature_list)}")
-print(f"   Reduction: {(1 - len(final_feature_list) / len(num_pred_cols)) * 100:.1f}%")
+# Prepare full in-sample (training) and out-of-sample (test) data
+df_oos = df[df.index.get_level_values('date').isin(dates_out_sample)]
 
-# Display selected features
-print(f"\n  Selected Features ({len(final_feature_list)}) - Statistically Significant:")
-print(f"    {'Feature':<30} {'Frequency':>10} {'Count':>8} {'P-value':>10} {'Sig'}")
-print("    " + "=" * 70)
+X_train_full = X_log_ins
+y_train_full = y_log_ins
+X_test = df_oos[num_pred_cols]
+y_test = DIR_binary[df.index.get_level_values('date').isin(dates_out_sample)]
 
-selected_features_df = feature_freq[selected_features_mask].copy()
-for idx, row in selected_features_df.iterrows():
-    feat = row["feature"]
-    freq = row["frequency"]
-    count = row["count"]
-    p_val = row["p_value"]
-    if p_val < 0.001:
-        sig = "***"
-    elif p_val < 0.01:
-        sig = "**"
-    elif p_val < 0.05:
-        sig = "*"
-    else:
-        sig = "n.s."
-    bar = "█" * int(freq * 20)
-    print(f"    {feat:<30} {freq:>6.1%} ({count:>2}/{n_windows})  p={p_val:>6.4f} {sig:>5}  {bar}")
+# Fit final model on entire training dataset using optimal l1_ratio
+final_pipeline_log = Pipeline([
+    ('scaler', StandardScaler()),
+    ('logistic', LogisticRegression(
+        penalty='elasticnet',
+        C=1.0,  # C remains constant
+        l1_ratio=l1_ratio_star,  # Use optimal l1_ratio
+        solver='saga',
+        max_iter=5000,
+        tol=1e-4,  # More lenient tolerance
+        random_state=42
+    ))
+])
 
-# Display removed features (top 15 by frequency, but not statistically significant)
-removed_features_df = feature_freq[~selected_features_mask].copy()
+final_pipeline_log.fit(X_train_full, y_train_full)
 
-if len(removed_features_df) > 0:
-    print(f"\n  Removed Features ({len(removed_features_df)}) - Not Statistically Significant:")
-    print("     (showing top 15 by frequency)")
-    print(f"    {'Feature':<30} {'Frequency':>10} {'Count':>8} {'P-value':>10}")
-    print("    " + "=" * 70)
+# Get coefficients
+coefficients_log = final_pipeline_log.named_steps['logistic'].coef_[0]
+intercept_log = final_pipeline_log.named_steps['logistic'].intercept_[0]
 
-    for idx, row in removed_features_df.head(15).iterrows():
-        feat = row["feature"]
-        freq = row["frequency"]
-        count = row["count"]
-        p_val = row["p_value"]
-        bar = "░" * int(freq * 20)
-        print(f"    {feat:<30} {freq:>6.1%} ({count:>2}/{n_windows})  p={p_val:>6.4f} n.s.  {bar}")
+print(f"Final model fitted on {len(X_train_full):,} training observations")
+print(f"Test set contains {len(X_test):,} observations")
+print(f"\nIntercept: {intercept_log:.6f}")
+print(f"Number of non-zero coefficients: {(coefficients_log != 0).sum()}/{len(coefficients_log)}")
 
+# Generate predictions on test set
+y_pred_test = final_pipeline_log.predict(X_test)
+y_pred_proba_test = final_pipeline_log.predict_proba(X_test)[:, 1]
 
-# Feature categories breakdown
-def categorize_feature(feat):
-    """Categorize feature by type"""
-    if feat.startswith("ti_"):
-        return "Technical Indicator applied to ticker"
-    if feat.startswith("comm_"):
-        if "ti_" in feat:
-            return "Technical Indicator applied to common feature"
-        else:
-            return "Common feature"
-    if feat.startswith("ti_"):
-        return "Technical Indicator applied to ticker"
-    elif feat in ["mktrf", "smb", "hml", "rf", "umd"]:
-        return "Fama-French Factors"
-    elif feat.startswith("cons_") or feat.startswith("n_"):
-        return "IBES Consensus"
-    elif feat.startswith("adjclose_lag"):
-        return "Price Lags"
-    elif feat in ["adj_mktcap", "vol", "retx"]:
-        return "Market Data"
-    else:
-        return "Other"
+# Calculate performance metrics
+test_accuracy = (y_pred_test == y_test).mean()
+test_error = 1 - test_accuracy
 
+# Confusion matrix
+from sklearn.metrics import confusion_matrix, classification_report
 
-selected_features_df["category"] = selected_features_df["feature"].apply(categorize_feature)
-category_counts = selected_features_df["category"].value_counts()
+conf_matrix = confusion_matrix(y_test, y_pred_test)
 
-print("\n  Selected Features By Category:")
-for category, count in category_counts.items():
-    pct = count / len(selected_features_df) * 100 if len(selected_features_df) else 0.0
-    print(f"    {category:<30} {count:>2} features ({pct:>5.1f}%)")
+print("=" * 60)
+print("LOGISTIC REGRESSION - OUT-OF-SAMPLE PERFORMANCE")
+print("=" * 60)
+print(f"\nTest Set Accuracy:           {test_accuracy:.4f}")
+print(f"Test Set Error Rate:         {test_error:.4f}")
+print(f"\nConfusion Matrix:")
+print(f"                 Predicted Down  Predicted Up")
+print(f"Actual Down      {conf_matrix[0, 0]:>14,}  {conf_matrix[0, 1]:>12,}")
+print(f"Actual Up        {conf_matrix[1, 0]:>14,}  {conf_matrix[1, 1]:>12,}")
 
-# 3.5 Train the final in-sample model on all in-sample data
+print(f"\n{classification_report(y_test, y_pred_test, target_names=['Down (0)', 'Up (1)'])}")
 
-# Global Hyperparameter Search (in-sample, using selected features) — informational prints converted to comments
-# Using Ridge (L2-only) for final model after stability-based feature selection
+# Analyze most influential predictors
+coef_df = pd.DataFrame({
+    'feature': num_pred_cols,
+    'coefficient': coefficients_log
+})
+coef_df = coef_df[coef_df['coefficient'] != 0].copy()
+coef_df['abs_coefficient'] = coef_df['coefficient'].abs()
+coef_df = coef_df.sort_values('abs_coefficient', ascending=False)
 
-# Build in-sample slice with final features
-ins_mask = df.index.get_level_values("date").isin(ins_dates)
-X_ins = df.loc[ins_mask, final_feature_list]
-y_ins = DIR_binary.loc[ins_mask]
-
-# Group by date so folds split by day (avoid same-day leakage across stocks)
-groups_ins = df.loc[ins_mask].index.get_level_values("date")
-
-# Rebuild pipeline constrained to the selected features
-ct_final_cv = ColumnTransformer(
-    [("num", StandardScaler(with_mean=True), final_feature_list)],
-    remainder="drop",
-    sparse_threshold=0.0,
-)
-clf_final_cv = LogisticRegression(
-    penalty="l2",  # Ridge regularization only
-    solver="lbfgs",
-    max_iter=5000,
-    tol=1e-4,
-    random_state=random_state,
-    n_jobs=-1,
-)
-pipe_final_cv = Pipeline([("prep", ct_final_cv), ("clf", clf_final_cv)])
-
-# Conditional global hyperparameter tuning based on TUNE_HYPERPARAMETERS flag
-if TUNE_HYPERPARAMETERS:
-    param_grid_global = {
-        "clf__C": [0.001, 0.01, 0.1, 1, 10, 100],
-    }
-    cv_global = GroupKFold(n_splits=5)
-    gs_global = GridSearchCV(
-        estimator=pipe_final_cv,
-        param_grid=param_grid_global,
-        scoring="neg_log_loss",
-        cv=cv_global,
-        n_jobs=-1,
-        refit=True,
-        verbose=0,
-    )
-    gs_global.fit(X_ins, y_ins, groups=groups_ins)
-    best_C = gs_global.best_params_["clf__C"]
-    # Print summary table safely (no display())
-    results_df = pd.DataFrame(gs_global.cv_results_)
-    table = (
-        results_df[["param_clf__C", "mean_test_score", "std_test_score"]]
-        .sort_values("mean_test_score", ascending=False)
-        .to_string(index=False)
-    )
-    print("\nRidge C grid-search summary (higher mean_test_score is better neg_log_loss):")
-    print(table)
-else:
-    # Hardcoded hyperparameter (faster)
-    RIDGE_C = 0.1  # Moderate regularization
-    best_C = RIDGE_C
-
-# Lock in the global best hyperparameters and train final in-sample model
-clf_final = LogisticRegression(
-    penalty="l2",
-    solver="lbfgs",
-    C=best_C,
-    max_iter=5000,
-    tol=1e-4,
-    random_state=random_state,
-    n_jobs=-1,
-)
-ct_final = ColumnTransformer(
-    [("num", StandardScaler(with_mean=True), final_feature_list)],
-    remainder="drop",
-    sparse_threshold=0.0,
-)
-pipe_final = Pipeline([("prep", ct_final), ("clf", clf_final)])
-pipe_final.fit(X_ins, y_ins)
-
-# Report final model
-final_coef = pipe_final.named_steps["clf"].coef_[0]
-non_zero = (np.abs(final_coef) > 1e-5).sum()
-print("\nFinal Ridge Model (classification):")
-print(f"  Regularization: C={best_C} (lower = stronger)")
-print(f"  Total features: {len(final_coef)}")
-print(f"  Non-zero coeffs: {non_zero} / {len(final_coef)}")
-
-# Check probability distribution on training data
-train_probs = pipe_final.predict_proba(X_ins)[:, 1]
-print("\nIn-Sample Probability Distribution:")
-print(f"  Mean:   {train_probs.mean():.4f}")
-print(f"  Std:    {train_probs.std():.4f}")
-print(f"  Range:  [{train_probs.min():.4f}, {train_probs.max():.4f}]")
-extreme_pct = ((train_probs < 0.05) | (train_probs > 0.95)).mean() * 100
-print(f"  Extreme predictions (<0.05 or >0.95): {extreme_pct:.1f}%")
-if train_probs.max() > 0.99 or train_probs.min() < 0.01:
-    print("  WARNING: Very extreme probabilities detected (check OOS performance).")
-elif extreme_pct > 20:
-    print(f"  Note: {extreme_pct:.1f}% of predictions are very confident (<0.05 or >0.95)")
+print("\nTop 10 Most Influential Predictors (Non-Zero Coefficients):")
+print(coef_df.head(10).to_string(index=False))
 
 # =============================================================
 # 4. Linear Regression (Magnitude)
@@ -556,367 +322,178 @@ print(f"  Range:  [{y_continuous.min():.6f}, {y_continuous.max():.6f}]")
 print(f"  Total:  {len(y_continuous):,} observations")
 print(f"\nUsing {len(num_pred_cols)} features for prediction (same as logistic regression)")
 
-# 4.2 Hyperparameter tuning: linear regression + ElasticNet
+# =============================================================
+# 4.2 Hyperparameter Tuning - L1 Ratio Grid
+# =============================================================
 
-# Linear regression uses ElasticNet (L1 + L2 regularization)
-# Use same hyperparameter tuning toggle as logistic regression
+# Control variable for hyperparameter tuning
+HYPERPARAMETER_TUNING_LINEAR = False  # Set to False to use hardcoded l1_ratio=0.7
 
-# Hardcoded hyperparameters for linear regression (ElasticNet)
-LINEAR_ALPHA = 0.001
-LINEAR_L1_RATIO = 0.5
+# Prepare data for linear regression (use only in-sample data)
+df_ins = df[df.index.get_level_values('date').isin(ins_dates)]
+X_lin_ins = df_ins[num_pred_cols]
+y_lin_ins = df_ins["adj_prc_logret_lead1"]
 
-# Grid search ranges (used when TUNE_HYPERPARAMETERS = True)
-param_grid_linear = {
-    "clf__alpha": [0.0001, 0.001, 0.01, 0.1],
-    "clf__l1_ratio": [0.3, 0.5, 0.7, 0.9],
-}
-
-# Preprocessing: Standardize features (same as logistic)
-ct_linear = ColumnTransformer(
-    [("num", StandardScaler(with_mean=True), num_pred_cols)], remainder="drop", sparse_threshold=0.0
-)
-
-# ElasticNet regression with L1 + L2 regularization
-clf_linear = ElasticNet(
-    alpha=LINEAR_ALPHA, l1_ratio=LINEAR_L1_RATIO, max_iter=5000, tol=1e-4, random_state=random_state
-)
-
-# Pipeline: preprocessing to regression
-pipe_linear = Pipeline([("prep", ct_linear), ("clf", clf_linear)])
-
-# 4.3 Rolling training & feature selection per fold (Model Selection and Cross-Validation)
-
-print("Rolling Window Training for Linear Regression (In-Sample Only)")
-
-pred_return_linear = pd.Series(index=df.index, dtype=float)
-used_mask_linear = pd.Series(False, index=df.index)
-
-# Track feature selection across windows
-feature_selection_history_linear = []
-
-window_num = 0
-start_pos = 0
-
-while start_pos + ins_training_window_size + ins_validation_window_size <= len(ins_dates):
-    window_num += 1
-    window_start_time = time.time()
-
-    train_dates = ins_dates[start_pos : start_pos + ins_training_window_size]
-    valid_dates = ins_dates[
-        start_pos
-        + ins_training_window_size : start_pos
-        + ins_training_window_size
-        + ins_validation_window_size
-    ]
-
-    print(f"\n{'='*70}")
-    print(f"Window {window_num}: {train_dates.min().date()} to {valid_dates.max().date()}")
-
-    start_pos += step_size
-
-    idx_tr = df.index.get_level_values("date").isin(train_dates)
-    idx_va = df.index.get_level_values("date").isin(valid_dates)
-
-    X_tr = df.loc[idx_tr, num_pred_cols]
-    y_tr = y_continuous.loc[idx_tr]
-    X_va = df.loc[idx_va, num_pred_cols]
-    y_va = y_continuous.loc[idx_va]
-    groups_ins = X_tr.index.get_level_values("date")
-
-    print(f"Training samples: {len(X_tr):,} | Validation samples: {len(X_va):,}")
-
-    # Conditional hyperparameter tuning based on TUNE_HYPERPARAMETERS flag
-    fit_start_time = time.time()
-    if TUNE_HYPERPARAMETERS:
-        # Grid search with cross-validation
-        gs_linear = GridSearchCV(
-            estimator=pipe_linear,
-            param_grid=param_grid_linear,
-            scoring="neg_mean_squared_error",  # maximize -MSE == minimize MSE
-            cv=GroupKFold(n_splits=3),
-            n_jobs=-1,
-            refit=True,
-        )
-        gs_linear.fit(X_tr, y_tr, groups=groups_ins)
-        pipe_best_linear = gs_linear.best_estimator_
-        best_alpha = gs_linear.best_params_["clf__alpha"]
-        best_l1_ratio = gs_linear.best_params_["clf__l1_ratio"]
-        cv_score = gs_linear.best_score_
-    else:
-        # Use hardcoded hyperparameters (faster) - create fresh clone
-        pipe_best_linear = clone(pipe_linear)
-        pipe_best_linear.fit(X_tr, y_tr)  # noqa
-        best_alpha = LINEAR_ALPHA
-        best_l1_ratio = LINEAR_L1_RATIO
-        cv_score = None
-
-    fit_time = time.time() - fit_start_time
-    print(f"   Fitting time: {fit_time:.2f} seconds")
-
-    # Validation RMSE/R2 report
-    y_pred_val = pipe_best_linear.predict(X_va)
-    rmse_val = np.sqrt(mean_squared_error(y_va, y_pred_val))
-    r2_val = r2_score(y_va, y_pred_val)
-
-    print(f"   Best params: alpha={best_alpha}, l1_ratio={best_l1_ratio}")
-    print(f"   Validation RMSE: {rmse_val:.6f}")
-    print(f"   Validation R²: {r2_val:.4f}")
-    if cv_score is not None:
-        print(f"   train(CV) RMSE: {np.sqrt(-cv_score):.6f}")
-
-    # Feature Selection Analysis (from tuned model)
-    coef = pipe_best_linear.named_steps["clf"].coef_
-
-    feature_importance = pd.DataFrame(
-        {"feature": num_pred_cols, "coefficient": coef, "abs_coefficient": np.abs(coef)}
-    )
-
-    ZERO_THRESHOLD = 1e-5
-    selected_features = feature_importance[feature_importance["abs_coefficient"] > ZERO_THRESHOLD]
-    n_selected = len(selected_features)
-    pct_selected = (n_selected / len(num_pred_cols)) * 100
-
-    top_features = selected_features.nlargest(10, "abs_coefficient")
-
-    feature_selection_history_linear.append(
-        {
-            "window": window_num,
-            "n_features_selected": n_selected,
-            "pct_selected": pct_selected,
-            "selected_features": selected_features["feature"].tolist(),
-            "top_5_features": top_features.head(5)["feature"].tolist(),
-            "train_start": train_dates.min(),
-            "valid_end": valid_dates.max(),
-        }
-    )
-
-    # Store predictions
-    pred_return_linear.loc[idx_va] = y_pred_val
-    used_mask_linear.loc[idx_va] = True
-
-    # Report
-    print("\nFeature Selection:")
-    print(f"   Selected: {n_selected}/{len(num_pred_cols)} features ({pct_selected:.1f}%)")
-    print("   Top 5 features by importance:")
-    for i, row in top_features.head(5).iterrows():
-        print(f"      {i + 1}. {row['feature']}: {row['coefficient']:+.6f}")
-
-    window_time = time.time() - window_start_time
-    print(
-        f"\nWindow {window_num} total time: {window_time:.2f} seconds ({window_time/60:.2f} minutes)"
-    )
-
-print(f"\nLinear Regression Training complete: {window_num} windows processed")
-print(f"Total validated: {used_mask_linear.sum():,} / {len(df):,}")
-
-# 4.4 Feature selection across all folds
-
-print("Feature Selection For Linear Regression Model (Statistical Stability Testing)")
-
-# Extract selection information from all windows
-n_windows_linear = len(feature_selection_history_linear)
-feature_counts_linear = {feat: 0 for feat in num_pred_cols}
-
-# Count how many windows each feature was selected in
-for window_info in feature_selection_history_linear:
-    selected_features = window_info["selected_features"]
-    for feat in selected_features:
-        feature_counts_linear[feat] += 1
-
-# Calculate frequency and statistical significance
-feature_freq_linear = pd.DataFrame(
-    [
-        {
-            "feature": feat,
-            "count": count,
-            "frequency": count / n_windows_linear if n_windows_linear > 0 else 0.0,
-            "p_value": (
-                binomtest(count, n_windows_linear, p=0.5, alternative="greater").pvalue
-                if n_windows_linear > 0
-                else 1.0
-            ),
-        }
-        for feat, count in feature_counts_linear.items()
-    ]
-).sort_values("frequency", ascending=False)
-
-# Statistical threshold
-SIGNIFICANCE_LEVEL_LINEAR = 0.05
-
-selected_features_mask_linear = feature_freq_linear["p_value"] < SIGNIFICANCE_LEVEL_LINEAR
-final_feature_list_linear = feature_freq_linear.loc[
-    selected_features_mask_linear, "feature"
-].tolist()
-
-print("\n  Selection Criterion:")
-print(f"   Statistical significance: alpha = {SIGNIFICANCE_LEVEL_LINEAR}")
-print("   Test: Binomial test against H0: feature selected randomly (p=0.5)")
-
-# Minimum required appearances
-if n_windows_linear > 0:
-    min_appearances_for_sig_linear = min(
-        [
-            i
-            for i in range(n_windows_linear + 1)
-            if binomtest(i, n_windows_linear, 0.5, alternative="greater").pvalue
-            < SIGNIFICANCE_LEVEL_LINEAR
-        ]
-    )
+# Define l1_ratio grid (l1_ratio bounded [0, 1])
+if HYPERPARAMETER_TUNING_LINEAR:
+    # Run hyperparameter tuning via cross-validation
+    l1_ratios_lin = np.linspace(0, 1, 4)  # 4 values from 0 to 1 inclusive
+    alpha_fixed = 0.01  # Fixed regularization strength
+    print(f"Testing {len(l1_ratios_lin)} l1_ratio values")
+    print(f"L1 ratio range: [{l1_ratios_lin.min():.3f}, {l1_ratios_lin.max():.3f}]")
+    print(f"Alpha (fixed): {alpha_fixed}")
+    
+    # Store RMSE for each l1_ratio
+    rmse_values = []
+    
+    # Cross-validation loop
+    for idx, l1_ratio in enumerate(l1_ratios_lin):
+        # Progress tracking for l1_ratio
+        print(f"Processing l1_ratio {idx + 1}/{len(l1_ratios_lin)}: {l1_ratio:.3f}")
+        fold_rmse = []
+        
+        # Iterate through rolling windows
+        for fold_idx in range(actual_folds):
+            # Progress tracking for folds
+            if fold_idx == 0 or (fold_idx + 1) % 2 == 0:  # Show progress every 2 folds
+                print(f"  Fold {fold_idx + 1}/{actual_folds}", end="... ")
+            
+            # Calculate window indices using the pre-configured parameters
+            start_idx = fold_idx * step_size
+            train_end_idx = start_idx + ins_training_window_size
+            val_end_idx = train_end_idx + ins_validation_window_size
+            
+            # Get date ranges from the in-sample dates
+            train_dates = ins_dates[start_idx:train_end_idx]
+            val_dates = ins_dates[train_end_idx:val_end_idx]
+            
+            # Split data using date filters
+            train_idx = df_ins.index.get_level_values('date').isin(train_dates)
+            val_idx = df_ins.index.get_level_values('date').isin(val_dates)
+            
+            X_train, y_train = X_lin_ins[train_idx], y_lin_ins[train_idx]
+            X_val, y_val = X_lin_ins[val_idx], y_lin_ins[val_idx]
+            
+            # Create pipeline with scaling and ElasticNet
+            pipeline = Pipeline([
+                ('scaler', StandardScaler()),
+                ('lasso', ElasticNet(
+                    alpha=alpha_fixed,  # Fixed regularization strength
+                    l1_ratio=l1_ratio,  # Tune l1_ratio
+                    max_iter=10000,
+                    tol=1e-4,
+                    random_state=42
+                ))
+            ])
+            
+            # Fit and predict
+            pipeline.fit(X_train, y_train)
+            y_pred = pipeline.predict(X_val)
+            
+            # Calculate RMSE
+            rmse = np.sqrt(mean_squared_error(y_val, y_pred))
+            fold_rmse.append(rmse)
+        
+        # Average RMSE across folds
+        avg_rmse = np.mean(fold_rmse)
+        rmse_values.append(avg_rmse)
+        print(f"Completed l1_ratio {idx + 1}/{len(l1_ratios_lin)}")
+    
+    print(f"\nCompleted validation for all {len(l1_ratios_lin)} l1_ratio values")
+    
+    # Find optimal l1_ratio (minimum RMSE)
+    optimal_idx = np.argmin(rmse_values)
+    l1_ratio_star_lin = l1_ratios_lin[optimal_idx]
+    min_rmse = rmse_values[optimal_idx]
+    
+    print("\nLinear Regression - Optimal Hyperparameters:")
+    print(f"  l1_ratio* = {l1_ratio_star_lin:.3f}")
+    print(f"  Minimum Average RMSE = {min_rmse:.6f}")
+    
+    # Plot RMSE vs l1_ratio
+    import matplotlib.pyplot as plt
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(l1_ratios_lin, rmse_values, marker='o', markersize=4)
+    plt.axvline(l1_ratio_star_lin, color='r', linestyle='--', label=f'l1_ratio* = {l1_ratio_star_lin:.3f}')
+    plt.xlabel('L1 Ratio')
+    plt.ylabel('Average RMSE')
+    plt.title('Linear Regression: RMSE vs L1 Ratio')
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.show()
+    
 else:
-    min_appearances_for_sig_linear = 0
+    # Use hardcoded l1_ratio value
+    l1_ratio_star_lin = 0.7
+    alpha_fixed = 0.001
+    print(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star_lin}")
 
-print("\n  Statistical Requirement:")
-print(
-    f"   For {n_windows_linear} windows, need >={min_appearances_for_sig_linear}/{n_windows_linear} appearances "
-    f"(>={min_appearances_for_sig_linear/n_windows_linear:.0%} if n_windows_linear>0 else 0%)"
-)
-if n_windows_linear > 0:
-    print(
-        f"   Note: 50% threshold ({n_windows_linear//2}/{n_windows_linear}) has p-value: "
-        f"{binomtest(n_windows_linear//2, n_windows_linear, 0.5, alternative='greater').pvalue:.3f}"
-    )
+# =============================================================
+# 4.3 Final Model Estimation and Out-of-Sample Evaluation
+# =============================================================
 
-print("\n  Results:")
-print(f"   Features selected: {len(final_feature_list_linear)} / {len(num_pred_cols)}")
-print(f"   Features removed:  {len(num_pred_cols) - len(final_feature_list_linear)}")
-print(f"   Reduction: {(1 - len(final_feature_list_linear) / len(num_pred_cols)) * 100:.1f}%")
+# Prepare full in-sample (training) and out-of-sample (test) data
+df_oos = df[df.index.get_level_values('date').isin(dates_out_sample)]
 
-# Safety check: ensure at least some features were selected
-if len(final_feature_list_linear) == 0:
-    print("\n  WARNING: No features selected with current statistical threshold!")
-    raise ValueError(
-        "No features selected for linear regression model. Adjust hyperparameters or significance level."
-    )
+X_train_full_lin = X_lin_ins
+y_train_full_lin = y_lin_ins
+X_test_lin = df_oos[num_pred_cols]
+y_test_lin = df_oos["adj_prc_logret_lead1"]
 
-# Display selected features
-print(f"\n  Selected Features ({len(final_feature_list_linear)}) - Statistically Significant:")
-print(f"    {'Feature':<30} {'Frequency':>10} {'Count':>8} {'P-value':>10} {'Sig'}")
-print("    " + "=" * 70)
+# Fit final model on entire training dataset using optimal l1_ratio
+final_pipeline_lin = Pipeline([
+    ('scaler', StandardScaler()),
+    ('lasso', ElasticNet(
+        alpha=alpha_fixed,  # Fixed regularization strength
+        l1_ratio=l1_ratio_star_lin,  # Use optimal l1_ratio
+        max_iter=10000,
+        tol=1e-4,
+        random_state=42
+    ))
+])
 
-selected_features_df_linear = feature_freq_linear[selected_features_mask_linear].copy()
-for idx, row in selected_features_df_linear.iterrows():
-    feat = row["feature"]
-    freq = row["frequency"]
-    count = row["count"]
-    p_val = row["p_value"]
-    if p_val < 0.001:
-        sig = "***"
-    elif p_val < 0.01:
-        sig = "**"
-    elif p_val < 0.05:
-        sig = "*"
-    else:
-        sig = "n.s."
-    bar = "█" * int(freq * 20)
-    print(
-        f"    {feat:<30} {freq:>6.1%} ({count:>2}/{n_windows_linear})  p={p_val:>6.4f} {sig:>5}  {bar}"
-    )
+final_pipeline_lin.fit(X_train_full_lin, y_train_full_lin)
 
-# Compare with logistic regression features
-print("\n  Comparison with Logistic Regression Features:")
-logistic_features = set(final_feature_list)
-linear_features = set(final_feature_list_linear)
-common_features = logistic_features.intersection(linear_features)
-logistic_only = logistic_features - linear_features
-linear_only = linear_features - logistic_features
-print(f"    Common to both models:    {len(common_features)} features")
-print(f"    Logistic only:            {len(logistic_only)} features")
-print(f"    Linear only:              {len(linear_only)} features")
-if 0 < len(logistic_only) <= 10:
-    print(f"    Logistic-only features: {', '.join(list(logistic_only)[:10])}")
-if 0 < len(linear_only) <= 10:
-    print(f"    Linear-only features: {', '.join(list(linear_only)[:10])}")
+# Get coefficients
+coefficients_lin = final_pipeline_lin.named_steps['lasso'].coef_
+intercept_lin = final_pipeline_lin.named_steps['lasso'].intercept_
 
-# 4.5 Train the final in-sample model on all in-sample data
+print(f"Final model fitted on {len(X_train_full_lin):,} training observations")
+print(f"Test set contains {len(X_test_lin):,} observations")
+print(f"\nIntercept: {intercept_lin:.6f}")
+print(f"Number of non-zero coefficients: {(coefficients_lin != 0).sum()}/{len(coefficients_lin)}")
 
-# Using Ridge (L2-only) for final model after stability-based feature selection
+# Generate predictions on test set
+y_pred_test_lin = final_pipeline_lin.predict(X_test_lin)
 
-# Build in-sample slice with final features
-ins_mask_linear = df.index.get_level_values("date").isin(ins_dates)
-X_ins_linear = df.loc[ins_mask_linear, final_feature_list_linear]
-y_ins_linear = y_continuous.loc[ins_mask_linear]
+# Calculate performance metrics
+test_rmse = np.sqrt(mean_squared_error(y_test_lin, y_pred_test_lin))
+test_r2 = r2_score(y_test_lin, y_pred_test_lin)
+test_mae = np.mean(np.abs(y_test_lin - y_pred_test_lin))
 
-# Group by date so folds split by day (avoid same-day leakage across stocks)
-groups_ins_linear = df.loc[ins_mask_linear].index.get_level_values("date")
+print("=" * 60)
+print("LINEAR REGRESSION - OUT-OF-SAMPLE PERFORMANCE")
+print("=" * 60)
+print(f"\nTest Set RMSE:               {test_rmse:.6f}")
+print(f"Test Set R²:                 {test_r2:.6f}")
+print(f"Test Set MAE:                {test_mae:.6f}")
+print(f"\nBaseline (predicting mean):")
+baseline_rmse = np.sqrt(mean_squared_error(y_test_lin, [y_train_full_lin.mean()] * len(y_test_lin)))
+print(f"Baseline RMSE:               {baseline_rmse:.6f}")
+print(f"Improvement over baseline:   {((baseline_rmse - test_rmse) / baseline_rmse * 100):.2f}%")
 
-# Rebuild pipeline constrained to the selected features
-ct_final_linear = ColumnTransformer(
-    [("num", StandardScaler(with_mean=True), final_feature_list_linear)],
-    remainder="drop",
-    sparse_threshold=0.0,
-)
-clf_final_linear_cv = Ridge(max_iter=5000, tol=1e-4, random_state=random_state)
-pipe_final_linear_cv = Pipeline([("prep", ct_final_linear), ("clf", clf_final_linear_cv)])
+# Analyze most influential predictors
+coef_df_lin = pd.DataFrame({
+    'feature': num_pred_cols,
+    'coefficient': coefficients_lin
+})
+coef_df_lin = coef_df_lin[coef_df_lin['coefficient'] != 0].copy()
+coef_df_lin['abs_coefficient'] = coef_df_lin['coefficient'].abs()
+coef_df_lin = coef_df_lin.sort_values('abs_coefficient', ascending=False)
 
-# Conditional global hyperparameter tuning
-if TUNE_HYPERPARAMETERS:
-    param_grid_linear_global = {
-        "clf__alpha": [0.00001, 0.0001, 0.001, 0.01, 0.1, 1.0, 10.0],
-    }
-    cv_global_linear = GroupKFold(n_splits=5)
-    gs_global_linear = GridSearchCV(
-        estimator=pipe_final_linear_cv,
-        param_grid=param_grid_linear_global,
-        scoring="neg_mean_squared_error",
-        cv=cv_global_linear,
-        n_jobs=-1,
-        refit=True,
-        verbose=0,
-    )
-    gs_global_linear.fit(X_ins_linear, y_ins_linear, groups=groups_ins_linear)
-    best_alpha_linear = gs_global_linear.best_params_["clf__alpha"]
-    # Print summary table safely
-    results_df_linear = pd.DataFrame(gs_global_linear.cv_results_)
-    table_lin = (
-        results_df_linear[["param_clf__alpha", "mean_test_score", "std_test_score"]]
-        .sort_values("mean_test_score", ascending=False)
-        .to_string(index=False)
-    )
-    print("\nRidge alpha grid-search summary (higher mean_test_score is better -MSE):")
-    print(table_lin)
-else:
-    RIDGE_ALPHA = 0.1  # Moderate regularization (higher = stronger)
-    best_alpha_linear = RIDGE_ALPHA
-
-# Lock in global best and train final in-sample model
-clf_final_linear = Ridge(
-    alpha=best_alpha_linear, max_iter=5000, tol=1e-4, random_state=random_state
-)
-ct_final_linear_final = ColumnTransformer(
-    [("num", StandardScaler(with_mean=True), final_feature_list_linear)],
-    remainder="drop",
-    sparse_threshold=0.0,
-)
-pipe_final_linear = Pipeline([("prep", ct_final_linear_final), ("clf", clf_final_linear)])
-pipe_final_linear.fit(X_ins_linear, y_ins_linear)
-
-# Report model performance on in-sample
-y_pred_ins = pipe_final_linear.predict(X_ins_linear)
-rmse_ins = np.sqrt(mean_squared_error(y_ins_linear, y_pred_ins))
-r2_ins = r2_score(y_ins_linear, y_pred_ins)
-
-print("\nFinal Ridge Model Performance (In-Sample, regression):")
-print(f"  Regularization: alpha={best_alpha_linear} (higher = stronger)")
-print(f"  RMSE: {rmse_ins:.6f}")
-print(f"  R²: {r2_ins:.4f}")
-
-# Report final model - Ridge doesn't eliminate
-final_coef_linear = pipe_final_linear.named_steps["clf"].coef_
-non_zero_linear = (np.abs(final_coef_linear) > 1e-5).sum()
-print(f"  Total features: {len(final_feature_list_linear)}")
-print(f"  Non-zero coeffs: {non_zero_linear} / {len(final_feature_list_linear)}")
-
-# Prediction distribution
-print("\nIn-Sample Prediction Distribution (regression):")
-print(f"  Mean:   {y_pred_ins.mean():.6f}")
-print(f"  Std:    {y_pred_ins.std():.6f}")
-print(f"  Range:  [{y_pred_ins.min():.6f}, {y_pred_ins.max():.6f}]")
-
-# Actual vs Predicted
-print("\nActual vs Predicted (regression):")
-print(f"  Actual mean:     {y_ins_linear.mean():.6f}")
-print(f"  Predicted mean:  {y_pred_ins.mean():.6f}")
-print(f"  Difference:      {abs(y_pred_ins.mean() - y_ins_linear.mean()):.6f}")
+print("\nTop 10 Most Influential Predictors (Non-Zero Coefficients):")
+print(coef_df_lin.head(10).to_string(index=False))
 
 # =============================================================
 # 5. Signal Confirmation & Trading Universe Selection
@@ -937,14 +514,14 @@ EXPECTED_RETURN_THRESHOLD_SHORT = 0.0
 
 # Generate Predictions for ALL Data (In-Sample + Out-Of-Sample)
 # Logistic Regression Predictions
-X_full_logistic = df[final_feature_list].copy()
-prob_up_full = pipe_final.predict_proba(X_full_logistic)[:, 1]
+X_full_logistic = df[num_pred_cols].copy()
+prob_up_full = final_pipeline_log.predict_proba(X_full_logistic)[:, 1]
 prob_down_full = 1 - prob_up_full
 logistic_score_full = 2 * prob_up_full - 1
 
 # Linear Regression Predictions
-X_full_linear = df[final_feature_list_linear].copy()
-expected_return_full = pipe_final_linear.predict(X_full_linear)
+X_full_linear = df[num_pred_cols].copy()
+expected_return_full = final_pipeline_lin.predict(X_full_linear)
 
 # Store predictions in DataFrame
 df_signals = df.copy()
@@ -997,7 +574,7 @@ print(
 )
 
 # Ensemble Agreement Analysis
-print("Ensemble Agreement (Both Models Must Agree)")
+print("\nEnsemble Agreement (Both Models Must Agree)")
 
 # Agreement on LONG: Both models say LONG
 df_signals["agreed_long"] = df_signals["logistic_signal_long"] & df_signals["linear_signal_long"]
@@ -1025,6 +602,62 @@ print(
 print(
     f"  Disagreement:      {df_signals['disagreed'].sum():>6,} ({df_signals['disagreed'].mean()*100:>5.1f}%)"
 )
+
+# 5.2 Trading Universe Selection
+
+print("\nTRADING UNIVERSE SELECTION: Filtering & Scoring")
+
+# Create Ensemble Score for Ranking
+# Strategy: Use logistic score for ranking, but set to 0 where models disagree
+df_signals["ensemble_score"] = df_signals["logistic_score"].copy()
+df_signals.loc[df_signals["disagreed"], "ensemble_score"] = 0.0
+
+print("\nEnsemble Score Created:")
+print(f"   Non-zero scores (tradeable): {(df_signals['ensemble_score'] != 0).sum():>6,}")
+print(f"   Zero scores (filtered out):  {(df_signals['ensemble_score'] == 0).sum():>6,}")
+print(
+    f"   Score range: [{df_signals['ensemble_score'].min():.4f}, {df_signals['ensemble_score'].max():.4f}]"
+)
+
+print("\n" + "=" * 80)
+print("Trading Universe Breakdown by Direction")
+print("=" * 80)
+
+# Create separate universes for long, short, and excluded
+long_universe = df_signals[df_signals["agreed_long"]].copy()
+short_universe = df_signals[df_signals["agreed_short"]].copy()
+excluded_universe = df_signals[df_signals["disagreed"]].copy()
+
+print(f"\nLONG Universe:  {len(long_universe):>6,} observations")
+if len(long_universe) > 0:
+    print(f"   Mean prob(up):       {long_universe['prob_up'].mean():.4f}")
+    print(f"   Mean E[R]:           {long_universe['expected_return'].mean():.6f}")
+    print(f"   Mean ensemble score: {long_universe['ensemble_score'].mean():.4f}")
+else:
+    print("   (No long candidates)")
+
+print(f"\nSHORT Universe: {len(short_universe):>6,} observations")
+if len(short_universe) > 0:
+    print(f"   Mean prob(up):       {short_universe['prob_up'].mean():.4f}")
+    print(f"   Mean E[R]:           {short_universe['expected_return'].mean():.6f}")
+    print(f"   Mean ensemble score: {short_universe['ensemble_score'].mean():.4f}")
+else:
+    print("   (No short candidates)")
+
+print(f"\nEXCLUDED:       {len(excluded_universe):>6,} observations (model disagreement)")
+
+print("\n" + "=" * 80)
+print("Trading Universe Summary")
+print("=" * 80)
+
+total_obs = len(df_signals)
+tradeable_obs = len(long_universe) + len(short_universe)
+filtered_obs = len(excluded_universe)
+
+print(f"\n  Total observations:       {total_obs:>7,}")
+print(f"  Tradeable (agreed):       {tradeable_obs:>7,} ({tradeable_obs/total_obs*100:>5.1f}%)")
+print(f"  Filtered out (disagreed): {filtered_obs:>7,} ({filtered_obs/total_obs*100:>5.1f}%)")
+
 
 # 5.2 Trading Universe Selection
 
