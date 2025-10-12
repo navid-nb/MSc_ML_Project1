@@ -1,3 +1,5 @@
+import datetime
+
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import ElasticNet, LogisticRegression
@@ -10,6 +12,7 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from functions.helpers._extract import ensure_dir
 from functions.helpers.allocation_strategies import apply_allocation_strategy
 from functions.helpers.data_extraction import wrds_extract_raw
 from functions.helpers.output_generation import make_qs_report_from_equity
@@ -1195,6 +1198,10 @@ mktrf_oos_report = (
 
 generated_reports = []
 
+now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+reports_dir = f"outputs/run_{now}"
+ensure_dir(reports_dir)
+
 for idx_out, strategy_dict in enumerate(strategies_to_output):
     strat_scoring = strategy_dict["scoring_method"]
     strat_allocation = strategy_dict["allocation_strategy"]
@@ -1205,8 +1212,8 @@ for idx_out, strategy_dict in enumerate(strategies_to_output):
     equity_curve = (1 + strat_returns).cumprod()
 
     # File names
-    output_file_daily = f"outputs/oos_{strat_scoring}_{allocation_strategy_name}.html"
-    output_file_monthly = f"outputs/oos_{strat_scoring}_{allocation_strategy_name}_monthly.html"
+    output_file_daily = f"{reports_dir}/oos_{strat_scoring}_{allocation_strategy_name}.html"
+    output_file_monthly = f"{reports_dir}/oos_{strat_scoring}_{allocation_strategy_name}_monthly.html"
 
     # Report titles
     start_date = strat_returns.index.min().date()
