@@ -469,6 +469,8 @@ def build_final_matrix(df: pd.DataFrame) -> pd.DataFrame:
         if "ti_" in col and col not in feature_cols:
             feature_cols.append(col)
 
+    #temp fix for inf values: if an instance in feature_cols has comm_ti_^GSPC_eom in it remove it
+    feature_cols = [col for col in feature_cols if not col.startswith("comm_ti_^GSPC_eom")]
     # Check for duplicates
     seen = set()
     duplicates = []
