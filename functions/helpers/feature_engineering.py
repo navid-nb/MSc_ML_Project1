@@ -321,8 +321,8 @@ def feature_augmentation(df: pd.DataFrame) -> pd.DataFrame:
 
     # 3) add log return columns
     # Columns to compute log returns for
+    out["adj_prc_logret"]=np.log1p(out['ret']) # using this insted of log retrun of adj_prc column to account for cash dividends
     add_log_ret_columns = [
-        "adj_prc",
         "adj_mktcap",
         "vol",
         "comm_^GSPC_close",
