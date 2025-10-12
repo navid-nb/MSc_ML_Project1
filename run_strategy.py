@@ -26,7 +26,7 @@ from run_data import build_model_matrix_from_raw_data
 
 raw_data = wrds_extract_raw(
     wrds_user="your-wrds-username",
-    start="2009-01-01",
+    start="2010-01-01",
     end="2025-01-01",
     chunk_size=500_000,
     use_run="last",  # "new", "last", or a specific folder name (e.g. "run_20250914_133747"),
