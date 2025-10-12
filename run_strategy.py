@@ -45,12 +45,11 @@ raw_data = wrds_extract_raw(
 df = build_model_matrix_from_raw_data(
     raw_data=raw_data,
     tickers=[
-        "AAPL", "NVDA", "MSFT", "AMZN", "GOOGL", "LLY", "WMT", "JPM", "BRKB",
-        "V", "MA", "XOM", "ORCL", "UNH", "COST", "PG", "HD", "NFLX", "JNJ",
-        "BAC", "CRM", "KO", "CVX", "TMUS", "MRK", "CSCO", "WFC", "ACN", "TSM",
-        "AXP", "PEP", "MCD", "IBM", "MS", "DIS", "TMO", "ABT", "AMD", "ADBE",
-        "PM", "ISRG", "GE", "GS", "INTU", "CAT", "TXN", "QCOM", "RY", "VZ",
-        "DHR", "BKNG", "T", "BLK", "SPGI"
+        "AAPL", "ABT", "ACN", "ADBE", "ADP", "AMD", "AMGN", "AMZN", "AXP", "BA", "BAC", "BLK", "BSX", "BX", "C", "CAT",
+        "CMCSA", "COP", "COST", "CRM", "CSCO", "CVX", "DHR", "DIS", "ETN", "GE", "GS", "HD", "HON", "IBM", "INTU",
+        "ISRG", "JNJ", "JPM", "KKR", "KO", "LLY", "LOW", "MA", "MCD", "MRK", "MS", "MSFT", "NEE", "NFLX", "NOW", "NVDA",
+        "ORCL", "PEP", "PFE", "PG", "PGR", "PM", "QCOM", "QQQ", "RY", "SCHW", "SYK", "T", "TJX", "TMO", "TSLA", "TSM",
+        "TXN", "UNH", "UNP", "V", "VZ", "WFC", "WMT", "XOM"
     ],
 )
 
@@ -869,7 +868,7 @@ if len(errors) > 0:
 # CONTROL PARAMETER: Choose evaluation and output scope
 # This controls BOTH Section 7 (evaluation) AND Section 9 (report generation)
 # Options: "optimal" (best strategy only), "top5" (top 5 strategies), "all" (all 15 combinations)
-EVALUATION_SCOPE = "optimal"  # Change to "top5" or "all" to evaluate/output multiple strategies
+EVALUATION_SCOPE = "top5"  # Change to "top5" or "all" to evaluate/output multiple strategies
 
 print("=" * 80)
 print("OUT-OF-SAMPLE EVALUATION")

@@ -43,7 +43,7 @@ def split_train_and_test(df, split_pct, random_state):
     print(f"   Dates: {len(ins_dates)} days ({len(ins_dates) / trading_days_count * 100:.1f}%)")
     print("   Purpose: feature selection, hyperparameter tuning, rolling CV")
 
-    print("\nOut-Of-Sample (Test Set):")
+    print("\n   Out-Of-Sample (Test Set):")
     print(f"   Period: {dates_out_sample.min().date()} to {dates_out_sample.max().date()}")
     print(
         f"   Dates: {len(dates_out_sample)} days ({len(dates_out_sample) / trading_days_count * 100:.1f}%)"
