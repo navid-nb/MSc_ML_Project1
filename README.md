@@ -49,6 +49,11 @@ to run `run_data` and populate the data folder (if not empty), you can run:
 ```bash
 ./.venv/bin/python run_data.py
 ```
+then run 
+```bash
+./.venv/bin/python run_strategy.py
+```
+which will catch the newly added data
 
 ## Data
 

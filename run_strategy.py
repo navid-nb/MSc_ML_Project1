@@ -13,6 +13,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from functions.helpers.allocation_strategies import apply_allocation_strategy
+from functions.helpers.data_extraction import wrds_extract_raw
 from functions.helpers.output_generation import (
     generate_oos_report,
     generate_oos_report_monthly,
@@ -24,11 +25,26 @@ from functions.helpers.portfolio_backtest import (
     calculate_portfolio_returns,
 )
 from functions.helpers.split_window import split_rolling_window, split_train_and_test
-from run_data import build_model_matrix_from_raw_data, raw_data
+from run_data import build_model_matrix_from_raw_data
 
 # =============================================================
 # 1. Data build & cleaning (CRSP/DSF/IBES/FF)
 # =============================================================
+
+raw_data = wrds_extract_raw(
+    wrds_user="your-wrds-username",
+    start="2016-01-01",
+    end="2021-01-01",
+    chunk_size=500_000,
+    use_run="last",  # "new", "last", or a specific folder name (e.g. "run_20250914_133747"),
+    base_dir="data",
+    artifacts=[
+        ("functions/migrations/001_base_extract.sql", "dsf.parquet"),
+        ("functions/migrations/002_ff_factors.sql", "ff.parquet"),
+        ("functions/migrations/003_ibes_statsumu.sql", "ibes_stats.parquet"),
+        ("functions/migrations/004_ibes_actu.sql", "ibes_act.parquet"),
+    ],
+)
 
 df = build_model_matrix_from_raw_data(
     raw_data=raw_data,
