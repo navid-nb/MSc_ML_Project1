@@ -59,7 +59,7 @@ df = build_model_matrix_from_raw_data(
 
 # Execute the split
 random_state = 42
-split_pct = 0.60
+split_pct = 0.585  # guarantees 5 yrs equity curve (~40% OOS)
 ins_dates, dates_out_sample, split_date = split_train_and_test(df, split_pct, random_state)
 
 # Rolling window size configuration for in-sample (60/20/20 Split)
@@ -330,7 +330,7 @@ y_lin_ins = df_ins["adj_prc_logret_lead1"]
 if HYPERPARAMETER_TUNING_LINEAR:
     # Run hyperparameter tuning via cross-validation
     l1_ratios_lin = [0.5, 0.6, 0.7]  # 4 values from 0 to 1 inclusive
-    alpha_fixed = 0.001  # Fixed regularization strength
+    alpha_fixed = 0.0001  # Fixed regularization strength
     print(f"Testing {len(l1_ratios_lin)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios_lin):.3f}, {max(l1_ratios_lin):.3f}]")
     print(f"Alpha (fixed): {alpha_fixed}")
@@ -425,7 +425,7 @@ if HYPERPARAMETER_TUNING_LINEAR:
 else:
     # Use hardcoded l1_ratio value
     l1_ratio_star_lin = 0.6
-    alpha_fixed = 0.001
+    alpha_fixed = 0.0001
     print(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star_lin}")
 
 # =============================================================
