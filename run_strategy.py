@@ -427,7 +427,7 @@ if HYPERPARAMETER_TUNING_LINEAR:
 
 else:
     # Use hardcoded l1_ratio value
-    l1_ratio_star_lin = 0.6
+    l1_ratio_star_lin = 0.5
     alpha_fixed = 0.0001
     print(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star_lin}")
 
