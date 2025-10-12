@@ -121,8 +121,8 @@ y_log_ins = DIR_binary[df.index.get_level_values("date").isin(ins_dates)]
 
 # Define l1_ratio grid (l1_ratio bounded [0, 1])
 if HYPERPARAMETER_TUNING:
-    l1_ratios = [0.7, 0.8, 0.9]  # 4 values from 0 to 1 inclusive
-    C_values = [0.05, 0.1, 0.2, 0.5, 1.0]
+    l1_ratios = [0.9]
+    C_values = [0.5, 1.0]
     print(f"Testing {len(l1_ratios)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios):.3f}, {max(l1_ratios):.3f}]")
 
@@ -175,7 +175,7 @@ if HYPERPARAMETER_TUNING:
         cv=cv_splits,
         n_jobs=-1,
         refit=True,
-        verbose=0,
+        verbose=2,
     )
 
     grid.fit(X_log_ins, y_log_ins)
@@ -383,7 +383,7 @@ if HYPERPARAMETER_TUNING_LINEAR:
         cv=cv_splits,
         n_jobs=-1,
         refit=True,
-        verbose=0,
+        verbose=2,
     )
 
     grid.fit(X_lin_ins, y_lin_ins)
