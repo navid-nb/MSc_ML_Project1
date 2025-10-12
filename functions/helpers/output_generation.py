@@ -104,7 +104,7 @@ def generate_oos_report(
 
     # Daily RF & MKTRF averaged across used stocks
     rf_oos = (
-        oos_df.loc[used_mask_oos]
+        oos_df.loc[:]
         .reset_index()[["date", "rf"]]
         .dropna()
         .groupby("date", as_index=True)["rf"]
@@ -113,7 +113,7 @@ def generate_oos_report(
         .sort_index()
     )
     mktrf_oos = (
-        oos_df.loc[used_mask_oos]
+        oos_df.loc[:]
         .reset_index()[["date", "mktrf"]]
         .dropna()
         .groupby("date", as_index=True)["mktrf"]
@@ -160,7 +160,7 @@ def generate_oos_report_monthly(
 
     # Daily RF & MKTRF averaged across used stocks (aggregation to monthly happens inside make_qs_*).
     rf_oos = (
-        oos_df.loc[used_mask_oos]
+        oos_df.loc[:]
         .reset_index()[["date", "rf"]]
         .dropna()
         .groupby("date", as_index=True)["rf"]
@@ -169,7 +169,7 @@ def generate_oos_report_monthly(
         .sort_index()
     )
     mktrf_oos = (
-        oos_df.loc[used_mask_oos]
+        oos_df.loc[:]
         .reset_index()[["date", "mktrf"]]
         .dropna()
         .groupby("date", as_index=True)["mktrf"]
