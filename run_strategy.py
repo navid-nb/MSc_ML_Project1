@@ -43,14 +43,14 @@ df = build_model_matrix_from_raw_data(
     raw_data=raw_data,
     tickers=[
         "AAPL", "NVDA", "MSFT", "AMZN", "TSLA", "GOOGL", "LLY", "WMT", "JPM", "BRK-B",
-        "V", "MA", "XOM", "ORCL", "UNH", "COST", "PG", "HD", "NFLX",
-        "JNJ", "BAC", "CRM", "QQQ", "ABBV", "KO", "CVX", "TMUS", "MRK", "CSCO",
-        "WFC", "ACN", "NOW", "TSM", "AXP", "PEP", "MCD", "IBM", "MS", "DIS",
-        "TMO", "ABT", "AMD", "ADBE", "PM", "ISRG", "GE", "GS", "INTU", "CAT",
-        "TXN", "QCOM", "RY", "VZ", "DHR", "BKNG", "T", "BLK", "SPGI",
-        "RTX", "PFE", "NEE", "HON", "CMCSA", "PGR", "AMGN", "LOW", "ANET", "UNP",
-        "SYK", "TJX", "C", "BA", "SCHW", "BSX", "KKR", "ETN",
-        "COP", "BX", "PANW", "ADP"
+        # "V", "MA", "XOM", "ORCL", "UNH", "COST", "PG", "HD", "NFLX",
+        # "JNJ", "BAC", "CRM", "QQQ", "ABBV", "KO", "CVX", "TMUS", "MRK", "CSCO",
+        # "WFC", "ACN", "NOW", "TSM", "AXP", "PEP", "MCD", "IBM", "MS", "DIS",
+        # "TMO", "ABT", "AMD", "ADBE", "PM", "ISRG", "GE", "GS", "INTU", "CAT",
+        # "TXN", "QCOM", "RY", "VZ", "DHR", "BKNG", "T", "BLK", "SPGI",
+        # "RTX", "PFE", "NEE", "HON", "CMCSA", "PGR", "AMGN", "LOW", "ANET", "UNP",
+        # "SYK", "TJX", "C", "BA", "SCHW", "BSX", "KKR", "ETN",
+        # "COP", "BX", "PANW", "ADP"
     ],
 )
 
