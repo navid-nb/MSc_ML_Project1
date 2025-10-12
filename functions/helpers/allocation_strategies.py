@@ -150,7 +150,7 @@ def strategy_a3_quantile(
     Long/short based on signal ranks within directional pools.
     - Go long top x% of LONG candidates (e.g., top 20%)
     - Go short bottom x% of SHORT candidates (e.g., bottom 20%)
-    
+
     Important: Calculates quantiles SEPARATELY for long and short pools
     to respect directional signals (avoids shorting predicted-up stocks).
 
@@ -171,7 +171,7 @@ def strategy_a3_quantile(
 
     # Calculate quantiles SEPARATELY for long and short pools
     # This ensures we only long from up-predicted stocks and short from down-predicted stocks
-    
+
     # Long side: Top quantile from long candidates
     long_scores = scores[long_mask]
     if len(long_scores) > 0:
@@ -180,7 +180,7 @@ def strategy_a3_quantile(
         n_top = top_mask.sum()
         if n_top > 0:
             weights[top_mask] = long_target / n_top
-    
+
     # Short side: Bottom quantile from short candidates
     short_scores = scores[short_mask]
     if len(short_scores) > 0:

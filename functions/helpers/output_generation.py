@@ -99,9 +99,6 @@ def generate_oos_report(
     # Ensure output directory exists
     ensure_dir(output_dir)
 
-    # Extract mask where positions exist
-    used_mask_oos = portfolio_result["weights"] != 0
-
     # Daily RF & MKTRF averaged across used stocks
     rf_oos = (
         oos_df.loc[:]
@@ -154,9 +151,6 @@ def generate_oos_report_monthly(
 
     # Ensure output directory exists
     ensure_dir(output_dir)
-
-    # Extract mask where positions exist
-    used_mask_oos = portfolio_result["weights"] != 0
 
     # Daily RF & MKTRF averaged across used stocks (aggregation to monthly happens inside make_qs_*).
     rf_oos = (

@@ -559,7 +559,7 @@ def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFram
     return filled_df
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Extract all stock data from WRDS for a predefined list of ~70 high-performing tickers.
     # These ~70 tickers do not represent the entire market universe; they are intentionally
     # limited to avoid downloading thousands of irrelevant securities.
@@ -567,8 +567,8 @@ if __name__ == '__main__':
     # Data sources: DSF, CRSP, Fama-French, IBES (see functions/migrations).
     raw_data = wrds_extract_raw(
         wrds_user="your-wrds-username",
-        start="2016-01-01",
-        end="2021-01-01",
+        start="2009-01-01",
+        end="2025-01-01",
         chunk_size=500_000,
         use_run="new",  # "new", "last", or a specific folder name (e.g. "run_20250914_133747"),
         base_dir="data",

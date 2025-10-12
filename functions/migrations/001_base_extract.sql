@@ -32,18 +32,14 @@ JOIN crsp.stocknames s
 WHERE d."date" >= %(start)s::date
   AND d."date" <  %(end)s::date
   AND s.ticker IN (
- 'NVDA', 'AAPL', 'AMZN', 'JPM', 'WMT', 'LLY', 'BRK-B', 
- 'UNH', 'NFLX', 'XOM', 'ORCL', 'COST', 'PG', 'HD', 'JNJ', 'BAC', 
- 'CRM', 'KO', 'CVX', 'MRK', 'CSCO', 'WFC', 'ACN', 'AXP', 'PEP', 
- 'MCD', 'IBM', 'DIS', 'TMO', 'ABT', 'AMD', 'ADBE', 'ISRG', 
- 'GE', 'GS', 'INTU', 'CAT', 'TXN', 'QCOM', 'RY', 'VZ', 'DHR',
- 'BLK', 'PFE', 'HON', 'CMCSA', 
- 'PGR', 'AMGN', 'LOW', 'UNP', 'SYK', 'TJX', 'C', 'BA', 
- 'BSX', 'ETN', 'COP', 'ADP', 'SBUX', 'VRTX', 'GILD', 'ADI', 
- 'LRCX', 'DE', 'SO', 'MU', 'PLD', 'REGN', 'DUK', 
- 'SHW', 'KLAC', 'CI', 'BMY', 'APH', 'MCO', 'ROST', 'AMAT', 'MCK', 'EOG', 
- 'PH', 'ORLY', 'GD', 'NOC', 'MSI', 
- 'ITW', 'TT', 'PCAR', 'AMT', 'UL', 'BHP', 'TD', 'COF', 'LOW', 'HON', 'UBS', 
- 'YUM', 'RCL', 'RSG', 'NKE', 'NEM', 'CDNS', 'MSTR'
+    'AAPL', 'NVDA', 'MSFT', 'AMZN', 'TSLA', 'GOOGL', 'LLY', 'WMT', 'JPM', 'BRK-B',
+    'V', 'MA', 'XOM', 'ORCL', 'UNH', 'COST', 'PG', 'HD', 'NFLX',
+    'JNJ', 'BAC', 'CRM', 'QQQ', 'ABBV', 'KO', 'CVX', 'TMUS', 'MRK', 'CSCO',
+    'WFC', 'ACN', 'NOW', 'TSM', 'AXP', 'PEP', 'MCD', 'IBM', 'MS', 'DIS',
+    'TMO', 'ABT', 'AMD', 'ADBE', 'PM', 'ISRG', 'GE', 'GS', 'INTU', 'CAT',
+    'TXN', 'QCOM', 'RY', 'VZ', 'DHR', 'BKNG', 'T', 'BLK', 'SPGI',
+    'RTX', 'PFE', 'NEE', 'HON', 'CMCSA', 'PGR', 'AMGN', 'LOW', 'ANET', 'UNP',
+    'SYK', 'TJX', 'C', 'BA', 'SCHW', 'BSX', 'KKR', 'ETN',
+    'COP', 'BX', 'PANW', 'ADP'
   )
 ;

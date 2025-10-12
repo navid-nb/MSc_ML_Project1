@@ -321,7 +321,9 @@ def feature_augmentation(df: pd.DataFrame) -> pd.DataFrame:
 
     # 3) add log return columns
     # Columns to compute log returns for
-    out["adj_prc_logret"]=np.log1p(out['ret']) # using this insted of log retrun of adj_prc column to account for cash dividends
+    out["adj_prc_logret"] = np.log1p(
+        out["ret"]
+    )  # using this insted of log retrun of adj_prc column to account for cash dividends
     add_log_ret_columns = [
         "adj_mktcap",
         "vol",
@@ -469,7 +471,7 @@ def build_final_matrix(df: pd.DataFrame) -> pd.DataFrame:
         if "ti_" in col and col not in feature_cols:
             feature_cols.append(col)
 
-    #temp fix for inf values: if an instance in feature_cols has comm_ti_^GSPC_eom in it remove it
+    # temp fix for inf values: if an instance in feature_cols has comm_ti_^GSPC_eom in it remove it
     feature_cols = [col for col in feature_cols if not col.startswith("comm_ti_^GSPC_eom")]
     # Check for duplicates
     seen = set()
