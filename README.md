@@ -17,9 +17,9 @@ python version is supported).
 - `wheels/`: prebuilt Python wheels for offline install  
 - `requirements.lock` + `requirements[*].txt`: pinned to the included wheels  
 - `data/`: Parquet snapshot (WRDS/YFinance) ready to use  
-- `run_install_packages.py`: creates venv and installs from `wheels/`  
-- `run_data.py`: prepares/validates data using the snapshot  
-- `run_strategy.py`: runs the backtest and writes to `outputs/`  
+- `run_install_packages.py`: Creates venv and installs from `wheels/`  
+- `run_data.py`: Downloads the data from WRDS and YFinance  
+- `run_strategy.py`: Runs the strategy and writes to `outputs/`  
 - `functions/`, `outputs/`, `docs/`: code, results, and documentation
 
 ## Quick Start (no venv activation needed)
@@ -62,7 +62,22 @@ The snapshot aggregates five WRDS datasets plus a small Yahoo Finance macro set,
 cleaning/join steps shown below. If you prefer to **rebuild/refresh** the snapshot, follow the
 optional online steps at the end (requires valid WRDS access and internet).
 
-### 1) What's in the snapshot
+### 1) Using the snapshot (default, offline)
+
+- **Default run** (`run_strategy.py`) uses the included `data/` snapshot (no network required).  
+- If no snapshot is found, the code calls into `run_data` to populate `data/` automatically.
+
+---
+
+### 2) (Optional) Rebuild/refresh the snapshot online
+
+1. Ensure you have **WRDS credentials**.
+2. Simply run`run_data.py`
+3. This will create a new run folder within `data/` containing new Parquet files
+
+---
+
+### 3) What's in the snapshot
 
 **WRDS (via HEC's WRDS license):**
 - **CRSP – Daily Stock File (`crsp.dsf`)** -> `dsf.parquet`  
@@ -81,9 +96,9 @@ optional online steps at the end (requires valid WRDS access and internet).
 
 ---
 
-### 2) How the snapshot is built
+### 4) How the snapshot is built
 
-The pipeline is orchestrated by `run_data.py` and helpers in `functions/helpers/`:
+The pipeline is orchestrated by `run_data.py` using modularized helpers in `functions/helpers/`:
 
 1. **Raw extraction (WRDS) -> Parquet files**  
    `wrds_extract_raw(...)` runs the SQL files above and writes artifacts into a timestamped run
@@ -95,18 +110,18 @@ The pipeline is orchestrated by `run_data.py` and helpers in `functions/helpers/
    - `ensure_index(..., ['permno','date'])`, `pre_qa_dsf(...)` validate keys & dtypes.  
    - `clean_dsf(...)` removes entities with zero adjustment factors (`cfacpr/cfacshr`) and excessive
      negative prices, then recomputes adjusted price/shares/market cap.
-4. **Entity/ticker mapping (as-of join)**  
-   `join_dsf_with_stocknames(...)` merges CRSP names to DSF as of each trading date, collapses
-   overlapping intervals, and ensures no row inflation.
-5. **Factor & fundamentals joins**  
-   - `join_prices_with_ff(...)` (on `date`) + `post_join_qa_prices_with_ff(...)`.  
-   - `prepare_ibes_for_daily_merge(...)` -> `join_prices_with_ibes(...)` (on `(ticker,date)`), then
-     `post_join_qa_prices_with_ibes(...)`.  
-   - `prepare_ibes_actu_for_daily_merge(...)` -> `join_prices_with_ibes_actu(...)` (on `(ticker,date)`),
-     then `post_join_qa_prices_with_ibes_actu(...)`.
-6. **Macro joins**  
-   `join_prices_with_common_features(...)` attaches the Yahoo Finance columns to **every permno** per
-   trading date.
+4. **Ticker filtering and cross-dataset alignment**  
+   `filter_by_tickers(...)` focuses on specified stock universe, while 
+   `filter_by_tickers_and_permno_pairs(...)` ensures FF and IBES data only includes 
+   permno-date pairs present in the main DSF dataset.
+5. **Sequential data integration with quality assurance**  
+   - **Fama-French**: `pre_qa_ff(...)` -> `join_prices_with_ff(...)` -> `post_join_qa_prices_with_ff(...)`  
+   - **IBES Consensus**: `pre_qa_ibes_statsumu(...)` -> `prepare_ibes_for_daily_merge(...)` -> `join_prices_with_ibes(...)` -> `post_join_qa_prices_with_ibes(...)`  
+   - **IBES Actuals**: `pre_qa_ibes_actu(...)` -> `prepare_ibes_actu_for_daily_merge(...)` -> `join_prices_with_ibes_actu(...)` -> `post_join_qa_prices_with_ibes_actu(...)`
+6. **Yahoo Finance market context integration**  
+   `join_prices_with_common_features(...)` attaches volatility indices (VIX, VXN, OVX, GVZ), 
+   market indices (S&P 500, NASDAQ, Russell 2000), and sector ETFs (XLK, XLF, XLE, XLV, XLI) 
+   to **every permno** per trading date for cross-asset feature generation.
 7. **Imputation & alignment**  
    - `forward_fill_and_remove_initial_nans(...)` forward-fills within each `permno` and drops leading
      rows that remain incomplete.  
@@ -123,29 +138,5 @@ The pipeline is orchestrated by `run_data.py` and helpers in `functions/helpers/
 
 ---
 
-### 3) Using the snapshot (default, offline)
 
-- **Default run** (`run_strategy.py`) uses the included `data/` snapshot (no network required).  
-- If no snapshot is found, the code calls into `run_data` to populate `data/` automatically.
 
----
-
-### 4) (Optional) Rebuild/refresh the snapshot online
-
-1. Ensure you have **WRDS credentials**.
-2. In `run_data.py`, call `build_model_matrix_from_wrds(...)` with:
-   - `wrds_user="YOUR_WRDS_USERNAME"`,
-   - desired `start`, `end`, and `chunk_size`,  
-   - `use_run="new"` to create a new `data/run_.../` folder.
-3. The function will:
-   - extract WRDS artifacts -> Parquet,
-   - download Yahoo Finance macro features,
-   - run all joins/QA/engineering,
-   - print shape/coverage summaries for the resulting matrix.
-
-You can subsequently point your experiments at the new run folder or keep using the snapshot for
-fully offline grading.
-
-**Fun fact:** The data extractor pulls **all securities defined by the SQL migrations** for the 
-chosen date range (independent of your ticker list). On later runs, you can change the ticker 
-list freely with `use_run="last"`, so no internet needed unless you change the date range.
