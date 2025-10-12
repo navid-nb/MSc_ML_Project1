@@ -147,41 +147,48 @@ def strategy_a3_quantile(
     """
     A3: Top/Bottom Quantile Strategy
 
-    Long/short based on signal ranks.
-    - Go long top x% (e.g., top 10–20%)
-    - Go short bottom x% (e.g., bottom 10–20%)
+    Long/short based on signal ranks within directional pools.
+    - Go long top x% of LONG candidates (e.g., top 20%)
+    - Go short bottom x% of SHORT candidates (e.g., bottom 20%)
+    
+    Important: Calculates quantiles SEPARATELY for long and short pools
+    to respect directional signals (avoids shorting predicted-up stocks).
 
     Args:
         scores: Stock scores
-        long_mask: Boolean mask for long positions (unused, quantile determines selection)
-        short_mask: Boolean mask for short positions (unused, quantile determines selection)
+        long_mask: Boolean mask for long positions (stocks predicted to go up)
+        short_mask: Boolean mask for short positions (stocks predicted to go down)
         long_target: Target long exposure
         short_target: Target short exposure
         max_position_size: Maximum weight per position
-        quantile_long_pct: Percentage for top quantile
-        quantile_short_pct: Percentage for bottom quantile
+        quantile_long_pct: Percentage for top quantile of LONG pool
+        quantile_short_pct: Percentage for bottom quantile of SHORT pool
 
     Returns:
         Series of portfolio weights
     """
     weights = pd.Series(0.0, index=scores.index)
 
-    # Determine quantile thresholds
-    quantile_long = scores.quantile(1 - quantile_long_pct)
-    quantile_short = scores.quantile(quantile_short_pct)
-
-    # Select top and bottom
-    agreed_mask = long_mask | short_mask
-    top_mask = (scores >= quantile_long) & agreed_mask
-    bottom_mask = (scores <= quantile_short) & agreed_mask
-
-    n_top = top_mask.sum()
-    n_bottom = bottom_mask.sum()
-
-    if n_top > 0:
-        weights[top_mask] = long_target / n_top
-    if n_bottom > 0:
-        weights[bottom_mask] = -short_target / n_bottom
+    # Calculate quantiles SEPARATELY for long and short pools
+    # This ensures we only long from up-predicted stocks and short from down-predicted stocks
+    
+    # Long side: Top quantile from long candidates
+    long_scores = scores[long_mask]
+    if len(long_scores) > 0:
+        quantile_long_threshold = long_scores.quantile(1 - quantile_long_pct)
+        top_mask = (scores >= quantile_long_threshold) & long_mask
+        n_top = top_mask.sum()
+        if n_top > 0:
+            weights[top_mask] = long_target / n_top
+    
+    # Short side: Bottom quantile from short candidates
+    short_scores = scores[short_mask]
+    if len(short_scores) > 0:
+        quantile_short_threshold = short_scores.quantile(quantile_short_pct)
+        bottom_mask = (scores <= quantile_short_threshold) & short_mask
+        n_bottom = bottom_mask.sum()
+        if n_bottom > 0:
+            weights[bottom_mask] = -short_target / n_bottom
 
     return cap_position_sizes(weights, max_position_size)
 
