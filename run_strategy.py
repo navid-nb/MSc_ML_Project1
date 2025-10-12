@@ -45,15 +45,12 @@ raw_data = wrds_extract_raw(
 df = build_model_matrix_from_raw_data(
     raw_data=raw_data,
     tickers=[
-        "AAPL", "NVDA", "MSFT", "AMZN", "TSLA", "GOOGL", "LLY", "WMT", "JPM", "BRK-B",
-        # "V", "MA", "XOM", "ORCL", "UNH", "COST", "PG", "HD", "NFLX",
-        # "JNJ", "BAC", "CRM", "QQQ", "ABBV", "KO", "CVX", "TMUS", "MRK", "CSCO",
-        # "WFC", "ACN", "NOW", "TSM", "AXP", "PEP", "MCD", "IBM", "MS", "DIS",
-        # "TMO", "ABT", "AMD", "ADBE", "PM", "ISRG", "GE", "GS", "INTU", "CAT",
-        # "TXN", "QCOM", "RY", "VZ", "DHR", "BKNG", "T", "BLK", "SPGI",
-        # "RTX", "PFE", "NEE", "HON", "CMCSA", "PGR", "AMGN", "LOW", "ANET", "UNP",
-        # "SYK", "TJX", "C", "BA", "SCHW", "BSX", "KKR", "ETN",
-        # "COP", "BX", "PANW", "ADP"
+        "AAPL", "NVDA", "MSFT", "AMZN", "GOOGL", "LLY", "WMT", "JPM", "BRKB",
+        "V", "MA", "XOM", "ORCL", "UNH", "COST", "PG", "HD", "NFLX", "JNJ",
+        "BAC", "CRM", "KO", "CVX", "TMUS", "MRK", "CSCO", "WFC", "ACN", "TSM",
+        "AXP", "PEP", "MCD", "IBM", "MS", "DIS", "TMO", "ABT", "AMD", "ADBE",
+        "PM", "ISRG", "GE", "GS", "INTU", "CAT", "TXN", "QCOM", "RY", "VZ",
+        "DHR", "BKNG", "T", "BLK", "SPGI"
     ],
 )
 
@@ -63,7 +60,7 @@ df = build_model_matrix_from_raw_data(
 
 # Execute the split
 random_state = 42
-split_pct = 0.70
+split_pct = 0.60
 ins_dates, dates_out_sample, split_date = split_train_and_test(df, split_pct, random_state)
 
 # Rolling window size configuration for in-sample (60/20/20 Split)
@@ -112,7 +109,7 @@ print(f"\nUsing {len(num_pred_cols)} features for prediction")
 # =============================================================
 
 # Control variable for hyperparameter tuning
-HYPERPARAMETER_TUNING = True  # Set to False to use hardcoded l1_ratio=0.7
+HYPERPARAMETER_TUNING = False  # Set to False to use hardcoded l1_ratio=0.7
 
 # Prepare data for logistic regression (use only in-sample data)
 df_ins = df[df.index.get_level_values("date").isin(ins_dates)]
@@ -218,7 +215,7 @@ if HYPERPARAMETER_TUNING:
 
 else:
     # Use hardcoded l1_ratio value
-    l1_ratio_star = 0.7
+    l1_ratio_star = 0.9
     C = 0.1
     print(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star}")
 
@@ -323,7 +320,7 @@ print(f"\nUsing {len(num_pred_cols)} features for prediction (same as logistic r
 # =============================================================
 
 # Control variable for hyperparameter tuning
-HYPERPARAMETER_TUNING_LINEAR = True  # Set to False to use hardcoded l1_ratio=0.7
+HYPERPARAMETER_TUNING_LINEAR = False  # Set to False to use hardcoded l1_ratio=0.7
 
 # Prepare data for linear regression (use only in-sample data)
 df_ins = df[df.index.get_level_values("date").isin(ins_dates)]
@@ -428,7 +425,7 @@ if HYPERPARAMETER_TUNING_LINEAR:
 
 else:
     # Use hardcoded l1_ratio value
-    l1_ratio_star_lin = 0.7
+    l1_ratio_star_lin = 0.6
     alpha_fixed = 0.001
     print(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star_lin}")
 
@@ -872,7 +869,7 @@ if len(errors) > 0:
 # CONTROL PARAMETER: Choose evaluation and output scope
 # This controls BOTH Section 7 (evaluation) AND Section 9 (report generation)
 # Options: "optimal" (best strategy only), "top5" (top 5 strategies), "all" (all 15 combinations)
-EVALUATION_SCOPE = "top5"  # Change to "top5" or "all" to evaluate/output multiple strategies
+EVALUATION_SCOPE = "optimal"  # Change to "top5" or "all" to evaluate/output multiple strategies
 
 print("=" * 80)
 print("OUT-OF-SAMPLE EVALUATION")

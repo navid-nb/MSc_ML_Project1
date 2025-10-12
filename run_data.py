@@ -54,6 +54,8 @@ warnings.filterwarnings(
     category=RuntimeWarning,
 )
 
+warnings.filterwarnings("ignore", message=r"'M' is deprecated.*", category=FutureWarning)
+
 
 def _permno_level_number(df: pd.DataFrame) -> int | None:
     """
