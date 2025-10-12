@@ -9,6 +9,7 @@ from sklearn.metrics import (
     mean_squared_error,
     r2_score,
 )
+from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -111,7 +112,7 @@ print(f"\nUsing {len(num_pred_cols)} features for prediction")
 # =============================================================
 
 # Control variable for hyperparameter tuning
-HYPERPARAMETER_TUNING = False  # Set to False to use hardcoded l1_ratio=0.7
+HYPERPARAMETER_TUNING = True
 
 # Prepare data for logistic regression (use only in-sample data)
 df_ins = df[df.index.get_level_values("date").isin(ins_dates)]
@@ -120,82 +121,69 @@ y_log_ins = DIR_binary[df.index.get_level_values("date").isin(ins_dates)]
 
 # Define l1_ratio grid (l1_ratio bounded [0, 1])
 if HYPERPARAMETER_TUNING:
-    # Run hyperparameter tuning via cross-validation
     l1_ratios = [0.7, 0.8, 0.9]  # 4 values from 0 to 1 inclusive
-    C = 1
+    C_values = [0.05, 0.1, 0.2, 0.5, 1.0]
     print(f"Testing {len(l1_ratios)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios):.3f}, {max(l1_ratios):.3f}]")
 
-    # Store classification error rates for each l1_ratio
-    error_rates = []
+    # Build explicit rolling CV splits identical to the earlier logic
+    cv_splits = []
+    for fold_idx in range(actual_folds):
+        start_idx = fold_idx * step_size
+        train_end_idx = start_idx + ins_training_window_size
+        val_end_idx = train_end_idx + ins_validation_window_size
 
-    # Cross-validation loop
-    for idx, l1_ratio in enumerate(l1_ratios):
-        # Progress tracking for l1_ratio
-        print(f"Processing l1_ratio {idx + 1}/{len(l1_ratios)}: {l1_ratio:.3f}")
-        fold_errors = []
+        train_dates = ins_dates[start_idx:train_end_idx]
+        val_dates = ins_dates[train_end_idx:val_end_idx]
 
-        # Iterate through rolling windows
-        for fold_idx in range(actual_folds):
-            # Progress tracking for folds
-            if fold_idx == 0 or (fold_idx + 1) % 2 == 0:  # Show progress every 2 folds
-                print(f"  Fold {fold_idx + 1}/{actual_folds}", end="... ")
+        train_mask = df_ins.index.get_level_values("date").isin(train_dates)
+        val_mask = df_ins.index.get_level_values("date").isin(val_dates)
 
-            # Calculate window indices using the pre-configured parameters
-            start_idx = fold_idx * step_size
-            train_end_idx = start_idx + ins_training_window_size
-            val_end_idx = train_end_idx + ins_validation_window_size
+        train_idx = np.where(train_mask)[0]
+        val_idx = np.where(val_mask)[0]
+        if len(train_idx) > 0 and len(val_idx) > 0:
+            cv_splits.append((train_idx, val_idx))
 
-            # Get date ranges from the in-sample dates
-            train_dates = ins_dates[start_idx:train_end_idx]
-            val_dates = ins_dates[train_end_idx:val_end_idx]
+    # Pipeline (same as before)
+    base_pipeline = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "logistic",
+                LogisticRegression(
+                    penalty="elasticnet",
+                    solver="saga",
+                    max_iter=5000,
+                    tol=1e-4,
+                    random_state=42,
+                ),
+            ),
+        ]
+    )
 
-            # Split data using date filters
-            train_idx = df_ins.index.get_level_values("date").isin(train_dates)
-            val_idx = df_ins.index.get_level_values("date").isin(val_dates)
+    # Param grid across l1_ratio and C
+    param_grid = {
+        "logistic__l1_ratio": l1_ratios,
+        "logistic__C": C_values,
+    }
 
-            X_train, y_train = X_log_ins[train_idx], y_log_ins[train_idx]
-            X_val, y_val = X_log_ins[val_idx], y_log_ins[val_idx]
+    # Accuracy corresponds to (1 - error rate) used previously
+    grid = GridSearchCV(
+        estimator=base_pipeline,
+        param_grid=param_grid,
+        scoring="accuracy",
+        cv=cv_splits,
+        n_jobs=-1,
+        refit=True,
+        verbose=0,
+    )
 
-            # Create pipeline with scaling and logistic regression
-            pipeline = Pipeline(
-                [
-                    ("scaler", StandardScaler()),
-                    (
-                        "logistic",
-                        LogisticRegression(
-                            penalty="elasticnet",
-                            C=C,
-                            l1_ratio=l1_ratio,
-                            solver="saga",
-                            max_iter=5000,
-                            tol=1e-4,
-                            random_state=42,
-                        ),
-                    ),
-                ]
-            )
-
-            # Fit and predict
-            pipeline.fit(X_train, y_train)
-            y_pred = pipeline.predict(X_val)
-
-            # Calculate error rate (1 - accuracy)
-            accuracy = (y_pred == y_val).mean()  # noqa
-            error_rate = 1 - accuracy
-            fold_errors.append(error_rate)
-
-        # Average error rate across folds
-        avg_error = np.mean(fold_errors)
-        error_rates.append(avg_error)
-        print(f"Completed l1_ratio {idx + 1}/{len(l1_ratios)}")
-
-    print(f"\nCompleted validation for all {len(l1_ratios)} l1_ratio values")
+    grid.fit(X_log_ins, y_log_ins)
 
     # Find optimal l1_ratio (minimum error rate)
-    optimal_idx = np.argmin(error_rates)
-    l1_ratio_star = l1_ratios[optimal_idx]
-    min_error = error_rates[optimal_idx]
+    l1_ratio_star = grid.best_params_["logistic__l1_ratio"]
+    C = grid.best_params_["logistic__C"]
+    min_error = 1 - grid.best_score_
 
     print("\nLogistic Regression - Optimal Hyperparameters:")
     print(f"  l1_ratio* = {l1_ratio_star:.3f}")
@@ -204,9 +192,19 @@ if HYPERPARAMETER_TUNING:
 
     # Plot error rates vs l1_ratio
     import matplotlib.pyplot as plt
+    import pandas as pd
+
+    # Aggregate mean validation error per l1_ratio (best across C for that l1_ratio)
+    cv_df = pd.DataFrame(grid.cv_results_)
+    cv_df["mean_error"] = 1 - cv_df["mean_test_score"]
+    agg = (
+        cv_df.groupby("param_logistic__l1_ratio")["mean_error"]
+        .min()
+        .reindex(l1_ratios)
+    )
 
     plt.figure(figsize=(10, 6))
-    plt.plot(l1_ratios, error_rates, marker="o", markersize=4)
+    plt.plot(list(agg.index), list(agg.values), marker="o", markersize=4)
     plt.axvline(l1_ratio_star, color="r", linestyle="--", label=f"l1_ratio* = {l1_ratio_star:.3f}")
     plt.xlabel("L1 Ratio")
     plt.ylabel("Average Classification Error Rate")
@@ -322,7 +320,7 @@ print(f"\nUsing {len(num_pred_cols)} features for prediction (same as logistic r
 # =============================================================
 
 # Control variable for hyperparameter tuning
-HYPERPARAMETER_TUNING_LINEAR = False  # Set to False to use hardcoded l1_ratio=0.7
+HYPERPARAMETER_TUNING_LINEAR = True
 
 # Prepare data for linear regression (use only in-sample data)
 df_ins = df[df.index.get_level_values("date").isin(ins_dates)]
@@ -331,80 +329,69 @@ y_lin_ins = df_ins["adj_prc_logret_lead1"]
 
 # Define l1_ratio grid (l1_ratio bounded [0, 1])
 if HYPERPARAMETER_TUNING_LINEAR:
-    # Run hyperparameter tuning via cross-validation
-    l1_ratios_lin = [0.5, 0.6, 0.7]  # 4 values from 0 to 1 inclusive
-    alpha_fixed = 0.0001  # Fixed regularization strength
+    l1_ratios_lin = [0.5, 0.6, 0.7]
+    alpha_candidates = [0.00005, 0.0001, 0.0003]
+    alpha_fixed = None  # Not used when tuning; preserved name for compatibility
     print(f"Testing {len(l1_ratios_lin)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios_lin):.3f}, {max(l1_ratios_lin):.3f}]")
     print(f"Alpha (fixed): {alpha_fixed}")
 
-    # Store RMSE for each l1_ratio
-    rmse_values = []
+    # Build explicit rolling CV splits identical to earlier logic
+    cv_splits = []
+    for fold_idx in range(actual_folds):
+        start_idx = fold_idx * step_size
+        train_end_idx = start_idx + ins_training_window_size
+        val_end_idx = train_end_idx + ins_validation_window_size
 
-    # Cross-validation loop
-    for idx, l1_ratio in enumerate(l1_ratios_lin):
-        # Progress tracking for l1_ratio
-        print(f"Processing l1_ratio {idx + 1}/{len(l1_ratios_lin)}: {l1_ratio:.3f}")
-        fold_rmse = []
+        train_dates = ins_dates[start_idx:train_end_idx]
+        val_dates = ins_dates[train_end_idx:val_end_idx]
 
-        # Iterate through rolling windows
-        for fold_idx in range(actual_folds):
-            # Progress tracking for folds
-            if fold_idx == 0 or (fold_idx + 1) % 2 == 0:  # Show progress every 2 folds
-                print(f"  Fold {fold_idx + 1}/{actual_folds}", end="... ")
+        train_mask = df_ins.index.get_level_values("date").isin(train_dates)
+        val_mask = df_ins.index.get_level_values("date").isin(val_dates)
 
-            # Calculate window indices using the pre-configured parameters
-            start_idx = fold_idx * step_size
-            train_end_idx = start_idx + ins_training_window_size
-            val_end_idx = train_end_idx + ins_validation_window_size
+        train_idx = np.where(train_mask)[0]
+        val_idx = np.where(val_mask)[0]
+        if len(train_idx) > 0 and len(val_idx) > 0:
+            cv_splits.append((train_idx, val_idx))
 
-            # Get date ranges from the in-sample dates
-            train_dates = ins_dates[start_idx:train_end_idx]
-            val_dates = ins_dates[train_end_idx:val_end_idx]
+    # Pipeline (same as before)
+    base_pipeline = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "lasso",
+                ElasticNet(
+                    max_iter=10000,
+                    tol=1e-4,
+                    random_state=42,
+                ),
+            ),
+        ]
+    )
 
-            # Split data using date filters
-            train_idx = df_ins.index.get_level_values("date").isin(train_dates)
-            val_idx = df_ins.index.get_level_values("date").isin(val_dates)
+    # Param grid across l1_ratio and alpha
+    param_grid = {
+        "lasso__l1_ratio": l1_ratios_lin,
+        "lasso__alpha": alpha_candidates,
+    }
 
-            X_train, y_train = X_lin_ins[train_idx], y_lin_ins[train_idx]
-            X_val, y_val = X_lin_ins[val_idx], y_lin_ins[val_idx]
+    # Use negative RMSE to mirror earlier RMSE minimization
+    grid = GridSearchCV(
+        estimator=base_pipeline,
+        param_grid=param_grid,
+        scoring="neg_root_mean_squared_error",
+        cv=cv_splits,
+        n_jobs=-1,
+        refit=True,
+        verbose=0,
+    )
 
-            # Create pipeline with scaling and ElasticNet
-            pipeline = Pipeline(
-                [
-                    ("scaler", StandardScaler()),
-                    (
-                        "lasso",
-                        ElasticNet(
-                            alpha=alpha_fixed,  # Fixed regularization strength
-                            l1_ratio=l1_ratio,  # Tune l1_ratio
-                            max_iter=10000,
-                            tol=1e-4,
-                            random_state=42,
-                        ),
-                    ),
-                ]
-            )
-
-            # Fit and predict
-            pipeline.fit(X_train, y_train)
-            y_pred = pipeline.predict(X_val)
-
-            # Calculate RMSE
-            rmse = np.sqrt(mean_squared_error(y_val, y_pred))
-            fold_rmse.append(rmse)
-
-        # Average RMSE across folds
-        avg_rmse = np.mean(fold_rmse)
-        rmse_values.append(avg_rmse)
-        print(f"Completed l1_ratio {idx + 1}/{len(l1_ratios_lin)}")
-
-    print(f"\nCompleted validation for all {len(l1_ratios_lin)} l1_ratio values")
+    grid.fit(X_lin_ins, y_lin_ins)
 
     # Find optimal l1_ratio (minimum RMSE)
-    optimal_idx = np.argmin(rmse_values)
-    l1_ratio_star_lin = l1_ratios_lin[optimal_idx]
-    min_rmse = rmse_values[optimal_idx]
+    l1_ratio_star_lin = grid.best_params_["lasso__l1_ratio"]
+    alpha_fixed = grid.best_params_["lasso__alpha"]
+    min_rmse = -grid.best_score_
 
     print("\nLinear Regression - Optimal Hyperparameters:")
     print(f"  l1_ratio* = {l1_ratio_star_lin:.3f}")
@@ -412,9 +399,20 @@ if HYPERPARAMETER_TUNING_LINEAR:
 
     # Plot RMSE vs l1_ratio
     import matplotlib.pyplot as plt
+    import pandas as pd
+
+    cv_df = pd.DataFrame(grid.cv_results_)
+    # Convert to RMSE
+    cv_df["mean_rmse"] = -cv_df["mean_test_score"]
+    # For each l1_ratio, take best (min) RMSE across alphas
+    agg = (
+        cv_df.groupby("param_lasso__l1_ratio")["mean_rmse"]
+        .min()
+        .reindex(l1_ratios_lin)
+    )
 
     plt.figure(figsize=(10, 6))
-    plt.plot(l1_ratios_lin, rmse_values, marker="o", markersize=4)
+    plt.plot(list(agg.index), list(agg.values), marker="o", markersize=4)
     plt.axvline(
         l1_ratio_star_lin, color="r", linestyle="--", label=f"l1_ratio* = {l1_ratio_star_lin:.3f}"
     )
@@ -428,7 +426,7 @@ if HYPERPARAMETER_TUNING_LINEAR:
 else:
     # Use hardcoded l1_ratio value
     l1_ratio_star_lin = 0.5
-    alpha_fixed = 0.0001
+    alpha_fixed = 0.0005
     print(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star_lin}")
 
 # =============================================================
