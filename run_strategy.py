@@ -60,7 +60,7 @@ df = build_model_matrix_from_raw_data(
 
 # Execute the split
 random_state = 42
-split_pct = 0.75
+split_pct = 0.70
 ins_dates, dates_out_sample, split_date = split_train_and_test(df, split_pct, random_state)
 
 # Rolling window size configuration for in-sample (60/20/20 Split)
@@ -119,7 +119,7 @@ y_log_ins = DIR_binary[df.index.get_level_values("date").isin(ins_dates)]
 # Define l1_ratio grid (l1_ratio bounded [0, 1])
 if HYPERPARAMETER_TUNING:
     # Run hyperparameter tuning via cross-validation
-    l1_ratios = [0.6, 0.7, 0.8]  # 4 values from 0 to 1 inclusive
+    l1_ratios = [0.7, 0.8, 0.9]  # 4 values from 0 to 1 inclusive
     C = 1.0
     print(f"Testing {len(l1_ratios)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios):.3f}, {max(l1_ratios):.3f}]")
@@ -163,7 +163,7 @@ if HYPERPARAMETER_TUNING:
                         "logistic",
                         LogisticRegression(
                             penalty="elasticnet",
-                            C=1.0,  # C remains constant
+                            C=C,
                             l1_ratio=l1_ratio,
                             solver="saga",
                             max_iter=5000,
@@ -216,6 +216,7 @@ if HYPERPARAMETER_TUNING:
 else:
     # Use hardcoded l1_ratio value
     l1_ratio_star = 0.7
+    C = 0.1
     print(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star}")
 
 # =============================================================
@@ -238,7 +239,7 @@ final_pipeline_log = Pipeline(
             "logistic",
             LogisticRegression(
                 penalty="elasticnet",
-                C=1.0,  # C remains constant
+                C=C,
                 l1_ratio=l1_ratio_star,  # Use optimal l1_ratio
                 solver="saga",
                 max_iter=5000,
@@ -329,8 +330,8 @@ y_lin_ins = df_ins["adj_prc_logret_lead1"]
 # Define l1_ratio grid (l1_ratio bounded [0, 1])
 if HYPERPARAMETER_TUNING_LINEAR:
     # Run hyperparameter tuning via cross-validation
-    l1_ratios_lin = [0.6, 0.7, 0.8]  # 4 values from 0 to 1 inclusive
-    alpha_fixed = 0.01  # Fixed regularization strength
+    l1_ratios_lin = [0.5, 0.6, 0,7]  # 4 values from 0 to 1 inclusive
+    alpha_fixed = 0.001  # Fixed regularization strength
     print(f"Testing {len(l1_ratios_lin)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios_lin):.3f}, {max(l1_ratios_lin):.3f}]")
     print(f"Alpha (fixed): {alpha_fixed}")
@@ -680,7 +681,6 @@ df_ins_signals["volatility"] = df_ins_signals.groupby(level="date")["volatility"
     lambda x: x.fillna(x.median())
 )
 
-
 # Use 20-day rolling std of returns, fill missing with cross-sectional median
 df_ins_signals["volatility"] = df_ins_signals.groupby(level="permno")["adj_prc_logret"].transform(
     lambda x: x.rolling(window=20, min_periods=5).std()
@@ -688,7 +688,6 @@ df_ins_signals["volatility"] = df_ins_signals.groupby(level="permno")["adj_prc_l
 df_ins_signals["volatility"] = df_ins_signals.groupby(level="date")["volatility"].transform(
     lambda x: x.fillna(x.median())
 )
-
 
 print(
     f"  In-sample period: {df_ins_signals.index.get_level_values('date').min()} to {df_ins_signals.index.get_level_values('date').max()}"
@@ -870,7 +869,7 @@ if len(errors) > 0:
 # CONTROL PARAMETER: Choose evaluation and output scope
 # This controls BOTH Section 7 (evaluation) AND Section 9 (report generation)
 # Options: "optimal" (best strategy only), "top5" (top 5 strategies), "all" (all 15 combinations)
-EVALUATION_SCOPE = "all"  # Change to "top5" or "all" to evaluate/output multiple strategies
+EVALUATION_SCOPE = "top5"  # Change to "top5" or "all" to evaluate/output multiple strategies
 
 print("=" * 80)
 print("OUT-OF-SAMPLE EVALUATION")
