@@ -120,7 +120,7 @@ y_log_ins = DIR_binary[df.index.get_level_values("date").isin(ins_dates)]
 if HYPERPARAMETER_TUNING:
     # Run hyperparameter tuning via cross-validation
     l1_ratios = [0.7, 0.8, 0.9]  # 4 values from 0 to 1 inclusive
-    C = 0.1
+    C = 1
     print(f"Testing {len(l1_ratios)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios):.3f}, {max(l1_ratios):.3f}]")
 
