@@ -45,11 +45,14 @@ raw_data = wrds_extract_raw(
 df = build_model_matrix_from_raw_data(
     raw_data=raw_data,
     tickers=[
-        "AAPL", "ABT", "ACN", "ADBE", "ADP", "AMD", "AMGN", "AMZN", "AXP", "BA", "BAC", "BLK", "BSX", "BX", "C", "CAT",
-        "CMCSA", "COP", "COST", "CRM", "CSCO", "CVX", "DHR", "DIS", "ETN", "GE", "GS", "HD", "HON", "IBM", "INTU",
-        "ISRG", "JNJ", "JPM", "KKR", "KO", "LLY", "LOW", "MA", "MCD", "MRK", "MS", "MSFT", "NEE", "NFLX", "NOW", "NVDA",
-        "ORCL", "PEP", "PFE", "PG", "PGR", "PM", "QCOM", "QQQ", "RY", "SCHW", "SYK", "T", "TJX", "TMO", "TSLA", "TSM",
-        "TXN", "UNH", "UNP", "V", "VZ", "WFC", "WMT", "XOM"
+        "AAPL", "ABT", "ACN", "ADBE", "ADP", "AMD", "AMGN", "AMZN",
+        "AXP", "BA", "BAC", "BLK", "BSX", "BX", "C", "CAT", "CMCSA",
+        "COP", "COST", "CRM", "CSCO", "CVX", "DHR", "DIS", "ETN", "GE",
+        "GS", "HD", "HON", "IBM", "INTU", "ISRG", "JNJ", "JPM", "KO",
+        "LLY", "LOW", "MA", "MCD", "MRK", "MS", "MSFT", "NFLX", "NVDA",
+        "ORCL", "PEP", "PFE", "PG", "PGR", "PM", "QCOM", "RY", "SCHW",
+        "SYK", "T", "TJX", "TMO", "TSM", "TXN", "UNH", "UNP", "V", "VZ",
+        "WFC", "WMT", "XOM"
     ],
 )
 
@@ -59,7 +62,7 @@ df = build_model_matrix_from_raw_data(
 
 # Execute the split
 random_state = 42
-split_pct = 0.585  # guarantees 5 yrs equity curve (~40% OOS)
+split_pct = 0.65  # guarantees 5 yrs equity curve (35% OOS)
 ins_dates, dates_out_sample, split_date = split_train_and_test(df, split_pct, random_state)
 
 # Rolling window size configuration for in-sample (60/20/20 Split)
@@ -630,8 +633,8 @@ ALLOCATION_DESCRIPTIONS = {
 }
 
 # Configuration
-LONG_TARGET = 0.5
-SHORT_TARGET = 0.5
+LONG_TARGET = 1.0
+SHORT_TARGET = 1.0
 MAX_POSITION_SIZE = 0.05
 QUANTILE_LONG_PCT = 0.20
 QUANTILE_SHORT_PCT = 0.20
@@ -868,7 +871,7 @@ if len(errors) > 0:
 # CONTROL PARAMETER: Choose evaluation and output scope
 # This controls BOTH Section 7 (evaluation) AND Section 9 (report generation)
 # Options: "optimal" (best strategy only), "top5" (top 5 strategies), "all" (all 15 combinations)
-EVALUATION_SCOPE = "top5"  # Change to "top5" or "all" to evaluate/output multiple strategies
+EVALUATION_SCOPE = "optimal"  # Change to "top5" or "all" to evaluate/output multiple strategies
 
 print("=" * 80)
 print("OUT-OF-SAMPLE EVALUATION")
