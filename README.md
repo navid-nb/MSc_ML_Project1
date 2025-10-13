@@ -1,9 +1,5 @@
 # MATH60610A Portfolio Backtesting (Quick Start)
 
-**Everything runs fully offline.** No internet is required.
-You can disable your WiFi (assuming your pre-installed
-python version is supported).
-
 ## Requirement
 
 - **Python 3.10 – 3.13**. The installer enforces this supported range.
@@ -16,7 +12,6 @@ python version is supported).
 
 ## What's Included (offline bundle)
 
-- `wheels/`: prebuilt Python wheels for offline install
 - `requirements.lock` + `requirements[*].txt`: pinned to the included wheels
 - `data/`: Parquet snapshot (WRDS/YFinance) ready to use
 - `run_install_packages.py`: Creates venv and installs from `wheels/`
@@ -33,7 +28,7 @@ Navigate to project root directory and run:
 **macOS/Linux**
 
 ```bash
-python3 run_install_packages.py --offline-only
+python3 run_install_packages.py
 ./.venv/bin/python run_strategy.py
 ```
 
@@ -45,7 +40,7 @@ py -3 run_install_packages.py
 ```
 
 > Tip: If you have multiple Python versions installed, you can force one:
-> `python3 run_install_packages.py --offline-only --python python3.10`  or
+> `python3 run_install_packages.py --python python3.10`  or
 `py -3.10 run_install_packages.py --python py -3.10`
 
 `run_strategy.py` will auto-run `run_data` and populate the `data` folder
