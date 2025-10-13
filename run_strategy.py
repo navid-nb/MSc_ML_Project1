@@ -112,7 +112,7 @@ print(f"\nUsing {len(num_pred_cols)} features for prediction")
 # =============================================================
 
 # Control variable for hyperparameter tuning
-HYPERPARAMETER_TUNING = True
+HYPERPARAMETER_TUNING = False
 
 # Prepare data for logistic regression (use only in-sample data)
 df_ins = df[df.index.get_level_values("date").isin(ins_dates)]
@@ -122,7 +122,7 @@ y_log_ins = DIR_binary[df.index.get_level_values("date").isin(ins_dates)]
 # Define l1_ratio grid (l1_ratio bounded [0, 1])
 if HYPERPARAMETER_TUNING:
     l1_ratios = [0.8, 0.9]
-    C_values = [0.5, 1.0]
+    C_values = [0.1, 0.5, 1.0]
     print(f"Testing {len(l1_ratios)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios):.3f}, {max(l1_ratios):.3f}]")
 
@@ -155,7 +155,7 @@ if HYPERPARAMETER_TUNING:
                     solver="saga",
                     max_iter=5000,
                     tol=1e-4,
-                    random_state=42,
+                    random_state=random_state,
                 ),
             ),
         ]
@@ -244,8 +244,8 @@ final_pipeline_log = Pipeline(
                 l1_ratio=l1_ratio_star,  # Use optimal l1_ratio
                 solver="saga",
                 max_iter=5000,
-                tol=1e-4,  # More lenient tolerance
-                random_state=42,
+                tol=1e-4,
+                random_state=random_state,
             ),
         ),
     ]
@@ -321,7 +321,7 @@ print(f"\nUsing {len(num_pred_cols)} features for prediction (same as logistic r
 # =============================================================
 
 # Control variable for hyperparameter tuning
-HYPERPARAMETER_TUNING_LINEAR = True
+HYPERPARAMETER_TUNING_LINEAR = False
 
 # Prepare data for linear regression (use only in-sample data)
 df_ins = df[df.index.get_level_values("date").isin(ins_dates)]
@@ -330,8 +330,8 @@ y_lin_ins = df_ins["adj_prc_logret_lead1"]
 
 # Define l1_ratio grid (l1_ratio bounded [0, 1])
 if HYPERPARAMETER_TUNING_LINEAR:
-    l1_ratios_lin = [0.5, 0.6, 0.7]
-    alpha_candidates = [0.00005, 0.0001, 0.0003]
+    l1_ratios_lin = [0.4, 0.5, 0.6]
+    alpha_candidates = [0.000005, 0.00005, 0.0005, 0.000001, 0.00001, 0.0001]
     alpha_fixed = None  # Not used when tuning; preserved name for compatibility
     print(f"Testing {len(l1_ratios_lin)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios_lin):.3f}, {max(l1_ratios_lin):.3f}]")
@@ -362,9 +362,9 @@ if HYPERPARAMETER_TUNING_LINEAR:
             (
                 "lasso",
                 ElasticNet(
-                    max_iter=10000,
+                    max_iter=100000,
                     tol=1e-4,
-                    random_state=42,
+                    random_state=random_state,
                 ),
             ),
         ]
@@ -395,8 +395,8 @@ if HYPERPARAMETER_TUNING_LINEAR:
     min_rmse = -grid.best_score_
 
     print("\nLinear Regression - Optimal Hyperparameters:")
-    print(f"  l1_ratio* = {l1_ratio_star_lin:.3f}")
-    print(f"  alpha* = {alpha_fixed:.3f}")
+    print(f"  l1_ratio* = {l1_ratio_star_lin}")
+    print(f"  alpha* = {alpha_fixed}")
     print(f"  Minimum Average RMSE = {min_rmse:.6f}")
 
     # Plot RMSE vs l1_ratio
@@ -428,7 +428,7 @@ if HYPERPARAMETER_TUNING_LINEAR:
 else:
     # Use hardcoded l1_ratio value
     l1_ratio_star_lin = 0.5
-    alpha_fixed = 0.0005
+    alpha_fixed = 0.0001
     print(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star_lin}")
 
 # =============================================================
@@ -452,9 +452,9 @@ final_pipeline_lin = Pipeline(
             ElasticNet(
                 alpha=alpha_fixed,  # Fixed regularization strength
                 l1_ratio=l1_ratio_star_lin,  # Use optimal l1_ratio
-                max_iter=10000,
+                max_iter=100000,
                 tol=1e-4,
-                random_state=42,
+                random_state=random_state,
             ),
         ),
     ]
