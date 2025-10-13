@@ -121,7 +121,7 @@ y_log_ins = DIR_binary[df.index.get_level_values("date").isin(ins_dates)]
 
 # Define l1_ratio grid (l1_ratio bounded [0, 1])
 if HYPERPARAMETER_TUNING:
-    l1_ratios = [0.9]
+    l1_ratios = [0.8, 0.9]
     C_values = [0.5, 1.0]
     print(f"Testing {len(l1_ratios)} l1_ratio values")
     print(f"L1 ratio range: [{min(l1_ratios):.3f}, {max(l1_ratios):.3f}]")
@@ -187,6 +187,7 @@ if HYPERPARAMETER_TUNING:
 
     print("\nLogistic Regression - Optimal Hyperparameters:")
     print(f"  l1_ratio* = {l1_ratio_star:.3f}")
+    print(f"  C* = {C}")
     print(f"  Minimum Average Classification Error Rate = {min_error:.4f}")
     print(f"  Validation Accuracy = {1 - min_error:.4f}")
 
@@ -395,6 +396,7 @@ if HYPERPARAMETER_TUNING_LINEAR:
 
     print("\nLinear Regression - Optimal Hyperparameters:")
     print(f"  l1_ratio* = {l1_ratio_star_lin:.3f}")
+    print(f"  alpha* = {alpha_fixed:.3f}")
     print(f"  Minimum Average RMSE = {min_rmse:.6f}")
 
     # Plot RMSE vs l1_ratio
