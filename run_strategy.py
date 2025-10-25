@@ -83,6 +83,10 @@ ins_window_size, ins_training_window_size, ins_validation_window_size, step_size
     )
 )
 
+print("\nins_training_window_size", "ins_validation_window_size", "step_size", "actual_folds")
+print(ins_training_window_size, ins_validation_window_size, step_size, actual_folds)
+print("\n")
+
 # =============================================================
 # 3. Logistic Regression (Direction)
 # =============================================================
