@@ -1,3 +1,6 @@
+import os
+import tempfile
+
 import pandas as pd
 import quantstats as qs
 
@@ -80,7 +83,8 @@ def make_qs_report_from_equity(
       1) Local filesystem (default, when s3_bucket is None):
          - Writes HTML to `out_path` on disk.
       2) S3 mode (when s3_bucket is provided):
-         - Generates the HTML in memory and uploads it to S3 using `upload_html_to_s3`.
+         - Renders HTML into a temporary local file (ephemeral storage),
+           reads it back, uploads to S3, and deletes the temp file.
          - `s3_key` controls the S3 object key; if omitted, `out_path` is used as key.
 
     Args:
@@ -131,25 +135,38 @@ def make_qs_report_from_equity(
         # Derive default S3 key from out_path if not provided explicitly
         key = s3_key or str(out_path).lstrip("/").replace("\\", "/")
 
-        # Generate HTML as a string (no 'output' argument -> returns HTML content)
-        html_report_content = qs.reports.html(
-            strat_excess,
-            benchmark=bench_excess.to_frame("Market"),
-            rf=0.0,
-            periods_per_year=periods_per_year,
-            title=title,
-        )
-        if html_report_content is None:
-            raise RuntimeError(
-                "quantstats.reports.html did not return HTML content. "
-                "Check your quantstats version or usage."
+        # Use a temporary local file for quantstats (required `output` argument)
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as tmp:
+                tmp_path = tmp.name
+
+            qs.reports.html(
+                strat_excess,
+                benchmark=bench_excess.to_frame("Market"),
+                rf=0.0,
+                periods_per_year=periods_per_year,
+                output=tmp_path,
+                title=title,
             )
 
-        upload_html_to_s3(html_report_content, bucket=s3_bucket, key=key)
-        print(f"   Mode:  S3 upload")
+            # Read back the generated HTML and upload to S3
+            with open(tmp_path, "r", encoding="utf-8") as f:
+                html_report_content = f.read()
+
+            upload_html_to_s3(html_report_content, bucket=s3_bucket, key=key)
+            print(f"   Mode:  S3 upload")
+        finally:
+            if tmp_path is not None:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
         print(f"   Freq:  {freq_label}")
         print(f"   Period: {strat_excess.index.min().date()} to {strat_excess.index.max().date()}")
         print(f"   Points: {len(strat_excess)}")
+
     else:
         # Local filesystem behavior (original)
         qs.reports.html(
@@ -183,8 +200,7 @@ def generate_oos_report(
     If s3_bucket is None:
         - Writes the report to `output_path` on the local filesystem.
     If s3_bucket is provided:
-        - Generates the report in memory and uploads it to S3 using `s3_key`
-          (or `output_path` as a default key).
+        - Renders the report into a temp local file, uploads HTML to S3, then deletes the temp file.
     """
     print("Generating Out-Of-Sample HTML Report (Daily)")
 
@@ -248,8 +264,7 @@ def generate_oos_report_monthly(
     If s3_bucket is None:
         - Writes the report to `output_path` on the local filesystem.
     If s3_bucket is provided:
-        - Generates the report in memory and uploads it to S3 using `s3_key`
-          (or `output_path` as a default key).
+        - Renders the report into a temp local file, uploads HTML to S3, then deletes the temp file.
     """
     print("Generating Out-Of-Sample HTML Report (Monthly Aggregated)")
 
