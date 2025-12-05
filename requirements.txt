@@ -10,6 +10,7 @@ statsmodels==0.14.5
 wrds==3.4.0
 yfinance==0.2.65
 boto3==1.42.3
+dagster-webserver==1.12.4
 dagster-postgres==0.28.4
 dagster-aws==0.28.4
 dagster==1.12.4

@@ -23,5 +23,7 @@ RUN pip install --upgrade pip && \
 
 COPY . .
 
-#CMD ["dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-m", "dagster_pipeline"]
-CMD ["tail", "-f", "/dev/null"]
+#prod: dagster api grpc -h 0.0.0.0 -p 4000 -m dagster_pipeline
+#dev: dagster dev -m dagster_pipeline
+CMD ["dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-m", "dagster_pipeline"]
+#CMD ["tail", "-f", "/dev/null"]
