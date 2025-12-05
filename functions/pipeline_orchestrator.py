@@ -4,6 +4,7 @@ def run_full_pipeline(
     tickers: list[str] | None = None,  # uses list of ~50 default tickers
     s3_bucket: str | None = None,
     input_prefix: str | None = None,
+    output_prefix: str | None = None,
 ):
     import datetime
 
@@ -1241,6 +1242,7 @@ def run_full_pipeline(
     generated_reports = []
 
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
     reports_dir = f"outputs/run_{now}"
     ensure_dir(reports_dir)
 
@@ -1275,6 +1277,7 @@ def run_full_pipeline(
             title=title_daily,
             out_path=output_file_daily,
             freq="D",
+            s3_bucket=s3_bucket,
         )
 
         make_qs_report_from_equity(
@@ -1284,6 +1287,7 @@ def run_full_pipeline(
             title=title_monthly,
             out_path=output_file_monthly,
             freq="M",
+            s3_bucket=s3_bucket,
         )
 
         generated_reports.append(

@@ -18,6 +18,51 @@ def _aggregate_simple_returns(returns: pd.Series, freq: str) -> pd.Series:
         raise ValueError(f"Unsupported freq: {freq}. Use 'D' or 'M'.")
 
 
+def upload_html_to_s3(
+    html_content: str,
+    bucket: str,
+    key: str,
+    *,
+    content_type: str = "text/html",
+    s3_client=None,
+) -> str:
+    """
+    Upload an HTML string to S3 and return the s3:// URI.
+
+    Args:
+        html_content: The HTML content to upload.
+        bucket: Target S3 bucket name.
+        key: Target S3 object key (e.g. 'reports/my_report.html').
+        content_type: MIME type for the object (default 'text/html').
+        s3_client: Optional pre-configured boto3 S3 client. If None, a new one is created.
+
+    Returns:
+        str: The S3 URI of the uploaded object (e.g. 's3://bucket/key').
+
+    Raises:
+        RuntimeError: If boto3 is not installed.
+        botocore.exceptions.ClientError: If the upload fails.
+    """
+    if s3_client is None:
+        try:
+            import boto3
+        except ImportError as e:
+            raise RuntimeError(
+                "boto3 is required for S3 uploads but is not installed."
+            ) from e
+        s3_client = boto3.client("s3")
+
+    s3_client.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=html_content,
+        ContentType=content_type,
+    )
+    s3_uri = f"s3://{bucket}/{key}"
+    print(f"    Uploaded report to {s3_uri}")
+    return s3_uri
+
+
 def make_qs_report_from_equity(
     equity_series,
     rf_series,
@@ -25,17 +70,30 @@ def make_qs_report_from_equity(
     title,
     out_path,
     freq: str = "D",
+    s3_bucket: str | None = None,
+    s3_key: str | None = None,
 ):
     """
     Generate a QuantStats HTML report from an equity curve.
+
+    Supports two output modes:
+      1) Local filesystem (default, when s3_bucket is None):
+         - Writes HTML to `out_path` on disk.
+      2) S3 mode (when s3_bucket is provided):
+         - Generates the HTML in memory and uploads it to S3 using `upload_html_to_s3`.
+         - `s3_key` controls the S3 object key; if omitted, `out_path` is used as key.
 
     Args:
         equity_series: Equity curve (cumulative returns at DAILY granularity)
         rf_series: Risk-free rate series (daily simple returns)
         mktrf_series: Market excess return series (daily excess returns)
         title: Report title
-        out_path: Output file path
+        out_path: Output file path (local path or used to derive default S3 key)
         freq: 'D' for daily report (default), 'M' for monthly-aggregated report
+        s3_bucket: Optional S3 bucket name to upload the HTML report to.
+        s3_key: Optional S3 object key; if None and s3_bucket is provided, derives
+                a key from `out_path` (stripping leading slashes and normalizing
+                backslashes to forward slashes).
     """
     # 1) Daily simple returns from equity
     rets_daily = equity_series.pct_change(fill_method=None).dropna()
@@ -68,19 +126,45 @@ def make_qs_report_from_equity(
     strat_excess = strat_excess.reindex(common_idx)
     bench_excess = bench_excess.reindex(common_idx)
 
-    # 6) Produce report
-    qs.reports.html(
-        strat_excess,
-        benchmark=bench_excess.to_frame("Market"),
-        rf=0.0,
-        periods_per_year=periods_per_year,
-        output=out_path,
-        title=title,
-    )
-    print(f"    Saved: {out_path}")
-    print(f"   Freq:  {freq_label}")
-    print(f"   Period: {strat_excess.index.min().date()} to {strat_excess.index.max().date()}")
-    print(f"   Points: {len(strat_excess)}")
+    # 6) Produce report: local file or S3
+    if s3_bucket:
+        # Derive default S3 key from out_path if not provided explicitly
+        key = s3_key or str(out_path).lstrip("/").replace("\\", "/")
+
+        # Generate HTML as a string (no 'output' argument -> returns HTML content)
+        html_report_content = qs.reports.html(
+            strat_excess,
+            benchmark=bench_excess.to_frame("Market"),
+            rf=0.0,
+            periods_per_year=periods_per_year,
+            title=title,
+        )
+        if html_report_content is None:
+            raise RuntimeError(
+                "quantstats.reports.html did not return HTML content. "
+                "Check your quantstats version or usage."
+            )
+
+        upload_html_to_s3(html_report_content, bucket=s3_bucket, key=key)
+        print(f"   Mode:  S3 upload")
+        print(f"   Freq:  {freq_label}")
+        print(f"   Period: {strat_excess.index.min().date()} to {strat_excess.index.max().date()}")
+        print(f"   Points: {len(strat_excess)}")
+    else:
+        # Local filesystem behavior (original)
+        qs.reports.html(
+            strat_excess,
+            benchmark=bench_excess.to_frame("Market"),
+            rf=0.0,
+            periods_per_year=periods_per_year,
+            output=out_path,
+            title=title,
+        )
+        print(f"    Saved: {out_path}")
+        print(f"   Mode:  Local file")
+        print(f"   Freq:  {freq_label}")
+        print(f"   Period: {strat_excess.index.min().date()} to {strat_excess.index.max().date()}")
+        print(f"   Points: {len(strat_excess)}")
 
 
 def generate_oos_report(
@@ -90,14 +174,23 @@ def generate_oos_report(
     output_path="outputs/oos_long_short_tearsheet.html",
     report_title=None,
     output_dir="outputs",
+    s3_bucket: str | None = None,
+    s3_key: str | None = None,
 ):
     """
-    DAILY report (existing behavior). See `generate_oos_report_monthly` for monthly aggregation.
+    DAILY report (existing behavior), with optional S3 upload.
+
+    If s3_bucket is None:
+        - Writes the report to `output_path` on the local filesystem.
+    If s3_bucket is provided:
+        - Generates the report in memory and uploads it to S3 using `s3_key`
+          (or `output_path` as a default key).
     """
     print("Generating Out-Of-Sample HTML Report (Daily)")
 
-    # Ensure output directory exists
-    ensure_dir(output_dir)
+    # Ensure local output directory exists only in local mode
+    if s3_bucket is None:
+        ensure_dir(output_dir)
 
     # Daily RF & MKTRF averaged across used stocks
     rf_oos = (
@@ -133,6 +226,8 @@ def generate_oos_report(
         title=report_title,
         out_path=output_path,
         freq="D",
+        s3_bucket=s3_bucket,
+        s3_key=s3_key,
     )
 
 
@@ -143,14 +238,24 @@ def generate_oos_report_monthly(
     output_path="outputs/oos_long_short_tearsheet_monthly.html",
     report_title=None,
     output_dir="outputs",
+    s3_bucket: str | None = None,
+    s3_key: str | None = None,
 ):
     """
-    MONTHLY report (aggregates daily returns -> monthly returns by compounding).
+    MONTHLY report (aggregates daily returns -> monthly returns by compounding),
+    with optional S3 upload.
+
+    If s3_bucket is None:
+        - Writes the report to `output_path` on the local filesystem.
+    If s3_bucket is provided:
+        - Generates the report in memory and uploads it to S3 using `s3_key`
+          (or `output_path` as a default key).
     """
     print("Generating Out-Of-Sample HTML Report (Monthly Aggregated)")
 
-    # Ensure output directory exists
-    ensure_dir(output_dir)
+    # Ensure local output directory exists only in local mode
+    if s3_bucket is None:
+        ensure_dir(output_dir)
 
     # Daily RF & MKTRF averaged across used stocks (aggregation to monthly happens inside make_qs_*).
     rf_oos = (
@@ -186,4 +291,6 @@ def generate_oos_report_monthly(
         title=report_title,
         out_path=output_path,
         freq="M",
+        s3_bucket=s3_bucket,
+        s3_key=s3_key,
     )
