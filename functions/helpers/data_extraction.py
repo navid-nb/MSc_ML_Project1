@@ -20,14 +20,23 @@ def wrds_extract_raw(
     use_run: str,
     base_dir: str,
     artifacts: List[Tuple[str, str]],
+    s3_bucket: str | None = None,
+    input_prefix: str | None = None,
 ) -> Dict[str, Any]:
     """
     Orchestrate raw data extraction from WRDS with directory and reuse management.
 
-    This function sets up the run folder according to the user's choice (new run, reuse last, or specific run),
-    connects to WRDS using given credentials, and runs SQL queries for all requested data artifacts.
-    Data is extracted in chunks and saved as Parquet files in the run folder.
-    If reuse mode is selected, it validates that the expected Parquet files already exist and skips extraction.
+    This function can operate in two modes:
+
+    1) Local mode (default, no s3_bucket/input_prefix):
+       - Uses local run folders under `base_dir`.
+       - Extracts data from WRDS (or reuses the last run) into Parquet files.
+
+    2) S3 "read-only" mode (when s3_bucket and input_prefix are provided):
+       - Skips WRDS extraction entirely.
+       - Assumes the Parquet files already exist in S3 under:
+         s3://{s3_bucket}/{input_prefix}/{parquet_name}
+       - Returns a `raw_data` dict whose artifact paths are S3 URIs.
 
     Args:
         wrds_user (str): WRDS username for authentication.
@@ -35,15 +44,34 @@ def wrds_extract_raw(
         end (str): End date for data extraction (e.g., "YYYY-MM-DD").
         chunk_size (int): Number of rows to fetch per chunk from WRDS.
         use_run (str): Specifies run mode ("new", "last", or explicit run folder name).
-        base_dir (str): Base directory under which to organize run folders.
-        artifacts (List[Tuple[str, str]]): List of (SQL file path, output Parquet filename) tuples to extract.
+        base_dir (str): Base directory under which to organize run folders (local mode).
+        artifacts (List[Tuple[str, str]]): List of (SQL file path, output Parquet filename).
+        s3_bucket (str | None): If provided with input_prefix, enables S3 read-only mode.
+        input_prefix (str | None): S3 prefix (folder) where artifacts live.
 
     Returns:
         Dict[str, Any]: Contains keys:
-            - "run_folder": Path of the run folder used for extraction.
+            - "run_folder": Path of the run folder (local path or S3 URI).
             - "reuse": Boolean flag whether the run folder was reused.
-            - "artifacts": Dict mapping Parquet filenames to their absolute paths.
+            - "artifacts": Dict mapping Parquet filenames to their absolute paths
+                           (local or s3://).
     """
+    if s3_bucket and input_prefix:
+        prefix_clean = input_prefix.strip("/")
+        run_dir = f"s3://{s3_bucket}/{prefix_clean}" if prefix_clean else f"s3://{s3_bucket}"
+        print(f"[info] Using S3 artifacts from: {run_dir}")
+
+        produced = {
+            parq: f"{run_dir}/{parq}"
+            for _, parq in artifacts
+        }
+
+        return {
+            "run_folder": run_dir,
+            "reuse": True,
+            "artifacts": produced,
+        }
+
     ensure_dir(base_dir)
     run_dir, run_name, reuse = make_run_folder(base_dir, use_run)
     print(f"[info] Using run folder: {run_name} (reuse={reuse})")

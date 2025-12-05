@@ -9,21 +9,32 @@ pd.set_option("display.max_columns", None)
 
 def parquet_to_df(artifacts: Dict[str, str], name: str) -> pd.DataFrame:
     """
-    Load a Parquet file from the from wrds extracts as a DataFrame.
+    Load a Parquet file from the wrds extracts as a DataFrame.
 
     Args:
-        artifacts (Dict[str, str]): Mapping of artifact names to Parquet file paths. mapping {parquet_name -> full_path}
+        artifacts (Dict[str, str]): Mapping of artifact names to Parquet file paths.
+            Mapping {parquet_name -> full_path}. Paths can be local filesystem paths
+            or S3 URIs (e.g. 's3://my-bucket/prefix/dsf.parquet').
         name (str): The key name of the Parquet artifact to load.
 
     Returns:
         pd.DataFrame: The loaded DataFrame.
 
     Raises:
-        FileNotFoundError: If the artifact is missing or path does not exist.
+        FileNotFoundError: If the artifact is missing or a local path does not exist.
     """
     path = artifacts.get(name)
-    if not path or not os.path.isfile(path):
+    if not path:
         raise FileNotFoundError(f"Required artifact missing: {name}")
+
+    if isinstance(path, str) and path.startswith("s3://"):
+        # pandas.read_parquet will use s3fs/fsspec
+        return pd.read_parquet(path)
+
+    # Local filesystem path
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"Required artifact missing: {name} at {path}")
+
     return pd.read_parquet(path)
 
 
