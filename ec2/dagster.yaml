@@ -43,3 +43,5 @@ storage:
       hostname: 10.0.6.96 # Connects via Docker Network
       db_name: postgres_db
       port: 5432
+      params:
+        pool_pre_ping: True
