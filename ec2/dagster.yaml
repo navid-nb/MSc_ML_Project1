@@ -1,5 +1,8 @@
 # /home/ec2-user/dagster_home/dagster.yaml
 
+telemetry:
+  enabled: false
+
 scheduler:
   module: dagster.core.scheduler
   class: DagsterDaemonScheduler
@@ -37,6 +40,6 @@ storage:
     postgres_db:
       username: postgres_user
       password: secure_password_123
-      hostname: docker_example_postgresql # Connects via Docker Network
+      hostname: 10.0.6.96 # Connects via Docker Network
       db_name: postgres_db
       port: 5432

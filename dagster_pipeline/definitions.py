@@ -26,7 +26,7 @@ tech_universe_job = define_asset_job(
                 "config": {
                     "tickers": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMD"],
                     "s3_bucket": "stock-trading-app-data",
-                    "input_prefix": "input_data/run_20251012_120713",
+                    "input_prefix": "input_data/recent",
                     "perform_tuning": True,
                 }
             },
