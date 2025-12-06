@@ -29,10 +29,10 @@ run_launcher:
       networkConfiguration:
         awsvpcConfiguration:
           subnets:
-            - "subnet-0854afcc357f162ed"
-            - "subnet-0150302adba14f3ab"
+            - "subnet-0854afcc357f162ed"  # private-1a
+            - "subnet-0150302adba14f3ab"  # private-1b
           securityGroups:
-            - "sg-084739294e864cc21"
+            - "sg-084739294e864cc21"  # Severed-SG-Apps
           assignPublicIp: "DISABLED" # Disabled because we use Private Subnet + NAT
 
 storage:
