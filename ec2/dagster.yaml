@@ -14,13 +14,11 @@ run_launcher:
   module: dagster_aws.ecs
   class: EcsRunLauncher
   config:
-    # 1. The Task Definition you just created
     task_definition: "severed-strategy-v1"
-    
-    # 2. The container name inside that task definition
     container_name: "strategy-container"
-    
-    # 3. Where to run it (Network Configuration)
+
+    secrets: []
+
     run_task_kwargs:
       cluster: "Severed-Cluster"
       launchType: "FARGATE"
