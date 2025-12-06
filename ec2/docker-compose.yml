@@ -68,6 +68,8 @@ services:
       DAGSTER_POSTGRES_USER: 'postgres_user'
       DAGSTER_POSTGRES_PASSWORD: 'secure_password_123'
       DAGSTER_POSTGRES_DB: 'postgres_db'
+#      ECS_CONTAINER_METADATA_URI: "http://dummy-metadata-uri"
+#      ECS_CONTAINER_METADATA_URI_V4: "http://dummy-metadata-uri"
     volumes:
       - /home/ec2-user/dagster_home/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml
       - /home/ec2-user/dagster_home/workspace.yaml:/opt/dagster/dagster_home/workspace.yaml

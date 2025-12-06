@@ -17,6 +17,7 @@ run_launcher:
     task_definition: "severed-strategy-v1"
     container_name: "strategy-container"
 
+    use_current_ecs_task_config: false
     secrets: []
 
     run_task_kwargs:
