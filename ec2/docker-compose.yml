@@ -1,3 +1,5 @@
+# /home/ec2-user/docker-compose.yml
+
 version: '3.7'
 
 services:
@@ -38,6 +40,8 @@ services:
       DAGSTER_POSTGRES_USER: 'postgres_user'
       DAGSTER_POSTGRES_PASSWORD: 'secure_password_123'
       DAGSTER_POSTGRES_DB: 'postgres_db'
+      AWS_DEFAULT_REGION: ca-central-1
+      AWS_REGION: ca-central-1
     volumes:
       - /home/ec2-user/dagster_home/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml
       - /home/ec2-user/dagster_home/workspace.yaml:/opt/dagster/dagster_home/workspace.yaml
@@ -54,8 +58,8 @@ services:
     entrypoint:
       - dagster-daemon
       - run
-      - -w                                         # <--- ADDED
-      - /opt/dagster/dagster_home/workspace.yaml   # <--- ADDED
+      - -w
+      - /opt/dagster/dagster_home/workspace.yaml
     container_name: docker_example_daemon
     restart: always
     environment:
@@ -66,7 +70,7 @@ services:
       DAGSTER_POSTGRES_DB: 'postgres_db'
     volumes:
       - /home/ec2-user/dagster_home/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml
-      - /home/ec2-user/dagster_home/workspace.yaml:/opt/dagster/dagster_home/workspace.yaml # <--- ADDED
+      - /home/ec2-user/dagster_home/workspace.yaml:/opt/dagster/dagster_home/workspace.yaml
     networks:
       - docker_example_network
     depends_on:
