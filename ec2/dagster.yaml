@@ -40,8 +40,6 @@ storage:
     postgres_db:
       username: postgres_user
       password: secure_password_123
-      hostname: 10.0.6.96 # Connects via Docker Network
+      hostname: 10.0.132.109
       db_name: postgres_db
       port: 5432
-      params:
-        pool_pre_ping: True
