@@ -1,83 +1,43 @@
-version: '3.7'
+# /home/ec2-user/dagster_home/dagster.yaml
 
-services:
-  # Database
-  docker_example_postgresql:
-    image: postgres:13
-    container_name: docker_example_postgresql
-    environment:
-      POSTGRES_USER: 'postgres_user'
-      POSTGRES_PASSWORD: 'secure_password_123'
-      POSTGRES_DB: 'postgres_db'
-    networks:
-      - docker_example_network
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres_user -d postgres_db']
-      interval: 10s
-      timeout: 5s
-      retries: 5
+scheduler:
+  module: dagster.core.scheduler
+  class: DagsterDaemonScheduler
 
-  # Webserver (UI)
-  docker_example_webserver:
-    image: 503561425608.dkr.ecr.ca-central-1.amazonaws.com/severed/optics/strategy-1:latest
-    platform: linux/amd64
-    entrypoint:
-      - dagster-webserver
-      - -h
-      - '0.0.0.0'
-      - -p
-      - '3000'
-      - -w
-      - /opt/dagster/dagster_home/workspace.yaml
-    container_name: docker_example_webserver
-    ports:
-      - '3000:3000'
-    environment:
-      DAGSTER_HOME: /opt/dagster/dagster_home
-      DAGSTER_POSTGRES_USER: 'postgres_user'
-      DAGSTER_POSTGRES_PASSWORD: 'secure_password_123'
-      DAGSTER_POSTGRES_DB: 'postgres_db'
-    volumes:
-      - /home/ec2-user/dagster_home/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml
-      - /home/ec2-user/dagster_home/workspace.yaml:/opt/dagster/dagster_home/workspace.yaml
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - docker_example_network
-    depends_on:
-      docker_example_postgresql:
-        condition: service_healthy
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    max_concurrent_runs: 5
 
-  # Daemon (Scheduler)
-  docker_example_daemon:
-    image: 503561425608.dkr.ecr.ca-central-1.amazonaws.com/severed/optics/strategy-1:latest
-    platform: linux/amd64
-    entrypoint:
-      - dagster-daemon
-      - run
-      - -w
-      - /opt/dagster/dagster_home/workspace.yaml
-    container_name: docker_example_daemon
-    restart: always
-    environment:
-      DAGSTER_HOME: /opt/dagster/dagster_home
-      AWS_DEFAULT_REGION: ca-central-1
-      DAGSTER_POSTGRES_USER: 'postgres_user'
-      DAGSTER_POSTGRES_PASSWORD: 'secure_password_123'
-      DAGSTER_POSTGRES_DB: 'postgres_db'
-    volumes:
-      - /home/ec2-user/dagster_home/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml
-      - /home/ec2-user/dagster_home/workspace.yaml:/opt/dagster/dagster_home/workspace.yaml
-    networks:
-      - docker_example_network
-    depends_on:
-      docker_example_postgresql:
-        condition: service_healthy
+run_launcher:
+  module: dagster_aws.ecs
+  class: EcsRunLauncher
+  config:
+    # 1. The Task Definition you just created
+    task_definition: "severed-strategy-v1"
+    
+    # 2. The container name inside that task definition
+    container_name: "strategy-container"
+    
+    # 3. Where to run it (Network Configuration)
+    run_task_kwargs:
+      cluster: "Severed-Cluster"
+      launchType: "FARGATE"
+      networkConfiguration:
+        awsvpcConfiguration:
+          subnets:
+            - "subnet-0854afcc357f162ed"
+            - "subnet-0150302adba14f3ab"
+          securityGroups:
+            - "sg-084739294e864cc21"
+          assignPublicIp: "DISABLED" # Disabled because we use Private Subnet + NAT
 
-networks:
-  docker_example_network:
-    driver: bridge
-
-volumes:
-  postgres_data:
+storage:
+  postgres:
+    postgres_db:
+      username: postgres_user
+      password: secure_password_123
+      hostname: docker_example_postgresql # Connects via Docker Network
+      db_name: postgres_db
+      port: 5432
