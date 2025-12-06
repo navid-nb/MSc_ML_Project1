@@ -129,9 +129,6 @@ def make_run_folder(
         - In S3 mode, the returned string is of the form:
               s3://{bucket}/{prefix}/{run_folder_name}
     """
-    # ------------------------------------------------------------------
-    # S3 MODE: construct an S3 URI and do not touch the local filesystem
-    # ------------------------------------------------------------------
     if s3_bucket is not None:
         if use_run == "new":
             stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -165,9 +162,6 @@ def make_run_folder(
 
         return out_dir, out_dir_name, reuse
 
-    # ------------------------------------------------------------------
-    # LOCAL FILESYSTEM MODE (original behavior)
-    # ------------------------------------------------------------------
     if use_run == "new":
         stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         out_dir_name = f"run_{stamp}"

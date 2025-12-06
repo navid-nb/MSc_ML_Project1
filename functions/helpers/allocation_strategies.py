@@ -6,7 +6,7 @@ stock signals/scores into portfolio weights subject to constraints.
 
 All strategies return a pandas Series of weights with the same index as the input.
 """
-
+import inspect
 from typing import Optional
 
 import numpy as np
@@ -577,5 +577,13 @@ def apply_allocation_strategy(
     # Merge with additional parameters
     common_args.update(strategy_params)
 
-    # Call the strategy function
-    return strategy_map[strategy_name](**common_args)
+    # Filter kwargs to what the strategy actually accepts
+    strategy_fn = strategy_map[strategy_name]
+    sig = inspect.signature(strategy_fn)
+    allowed_keys = sig.parameters.keys()
+    filtered_args = {
+        k: v for k, v in common_args.items()
+        if k in allowed_keys and v is not None
+    }
+
+    return strategy_fn(**filtered_args)

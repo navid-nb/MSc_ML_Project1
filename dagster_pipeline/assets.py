@@ -1,4 +1,12 @@
+import datetime
+import io
+import os
+
+import boto3
 import matplotlib
+from matplotlib import pyplot as plt
+
+from functions.helpers.output_generation import make_qs_report_from_equity
 
 # Force non-interactive backend for headless environments (Docker/Fargate)
 matplotlib.use("Agg")
@@ -12,7 +20,6 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-# Import your existing helper functions
 from functions.helpers.allocation_strategies import apply_allocation_strategy
 from functions.helpers.data_extraction import wrds_extract_raw
 from functions.helpers.portfolio_backtest import (
@@ -129,7 +136,7 @@ def split_config(context: AssetExecutionContext, model_matrix: pd.DataFrame) -> 
         model_matrix, split_pct, random_state
     )
 
-    # Calculate rolling windows (Restored from original)
+    # Calculate rolling windows
     split_pct_rolling_train = 0.6
     split_pct_rolling_test = 0.2
     target_folds_count = 10
@@ -449,7 +456,7 @@ def best_strategy_config(
     """
     ins_dates = split_config["ins_dates"]
 
-    context.log.info("Starting In-Sample Strategy Selection ---")
+    context.log.info("Starting In-Sample Strategy Selection")
 
     # Filter to In-Sample
     df_ins = trading_signals[trading_signals.index.get_level_values("date").isin(ins_dates)].copy()
@@ -581,5 +588,354 @@ def best_strategy_config(
                     ["scoring_method", "allocation_strategy", "sharpe"]
                 ].to_markdown()
             ),
+        },
+    )
+
+
+# ASSET 6b: Out-of-Sample Reporting
+@asset(compute_kind="quantstats")
+def oos_report(
+        context: AssetExecutionContext,
+        config: StrategyConfig,
+        trading_signals: pd.DataFrame,
+        split_config: dict,
+        best_strategy_config: dict,
+) -> Output[dict]:
+    """
+    1. Retrieves best strategy config from In-Sample selection.
+    2. Runs that strategy on Out-of-Sample data.
+    3. Generates HTML report.
+    """
+    # Retrieve inputs
+    oos_dates = split_config["oos_dates"]
+
+    best_scoring = best_strategy_config["scoring_method"]
+    best_alloc = best_strategy_config["allocation_strategy"]
+    best_is_sharpe = best_strategy_config["is_sharpe"]
+
+    context.log.info(
+        f"Running Optimal Strategy ({best_scoring}+{best_alloc}) on Out-of-Sample"
+    )
+
+    # Filter to OOS
+    df_oos = trading_signals[trading_signals.index.get_level_values("date").isin(oos_dates)].copy()
+
+    # Calculate OOS Volatility (Needed for A5)
+    if "anualized_volatility_20d" in df_oos.columns:
+        df_oos["volatility"] = df_oos["anualized_volatility_20d"] / np.sqrt(252)
+    else:
+        df_oos["volatility"] = df_oos.groupby(level="permno")["adj_prc_logret"].transform(
+            lambda x: x.rolling(window=20, min_periods=5).std()
+        )
+    df_oos["volatility"] = df_oos.groupby(level="date")["volatility"].transform(
+        lambda x: x.fillna(x.median())
+    )
+
+    # Re-define Scoring (Logic must match previous asset)
+    SCORING_METHODS = {
+        "S1": ("score_S1", lambda df: df["prob_up"] * df["expected_return"]),
+        "S2": ("score_S2", lambda df: (df["prob_up"] - 0.5) * df["expected_return"]),
+        "S6": ("score_S6", lambda df: (2 * df["prob_up"] - 1) * df["expected_return"].abs()),
+    }
+
+    # Apply Selected Score
+    score_col_oos = SCORING_METHODS[best_scoring][0]
+    func_oos = SCORING_METHODS[best_scoring][1]
+    df_oos[score_col_oos] = func_oos(df_oos)
+
+    # Apply Selected Allocation
+    weights_all_oos = []
+    unique_dates_oos = df_oos.index.get_level_values("date").unique()
+    scores_oos = df_oos[score_col_oos]
+    long_mask_oos = df_oos["agreed_long"]
+    short_mask_oos = df_oos["agreed_short"]
+
+    # Constants
+    LONG_TARGET = 1.0
+    SHORT_TARGET = 1.0
+    MAX_POSITION_SIZE = 0.05
+    QUANTILE_LONG_PCT = 0.20
+    QUANTILE_SHORT_PCT = 0.20
+
+    for date in unique_dates_oos:
+        date_mask = df_oos.index.get_level_values("date") == date
+
+        alloc_params = {
+            "long_target": LONG_TARGET,
+            "short_target": SHORT_TARGET,
+            "max_position_size": MAX_POSITION_SIZE,
+        }
+
+        if best_alloc == "A3":
+            alloc_params["quantile_long_pct"] = QUANTILE_LONG_PCT
+            alloc_params["quantile_short_pct"] = QUANTILE_SHORT_PCT
+
+        kwargs = {}
+        if best_alloc == "A5":
+            kwargs["volatility"] = df_oos.loc[date_mask, "volatility"]
+
+        weights_date = apply_allocation_strategy(
+            strategy_name=best_alloc,
+            scores=scores_oos[date_mask],
+            long_mask=long_mask_oos[date_mask],
+            short_mask=short_mask_oos[date_mask],
+            **kwargs,
+            **alloc_params,
+        )
+        weights_all_oos.append(weights_date)
+
+    df_oos["portfolio_weights"] = pd.concat(weights_all_oos)
+
+    # Calculate Returns
+    portfolio_returns = calculate_portfolio_returns(
+        df=df_oos,
+        weights_col="portfolio_weights",
+        returns_col="adj_prc_logret_lead1",
+        date_col="date",
+    )
+
+    metrics = calculate_performance_metrics(portfolio_returns, rf_rate=0.0)
+    context.log.info(f"OOS Sharpe: {metrics['sharpe']:.3f}")
+
+    degradation = (metrics["sharpe"] - best_is_sharpe) / best_is_sharpe * 100
+    context.log.info(f"Sharpe Degradation: {degradation:.1f}%")
+
+    # Generate Report
+    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    equity_curve = (1 + portfolio_returns).cumprod()
+
+    rf_series = df_oos.reset_index().groupby("date")["rf"].mean()
+    mktrf_series = df_oos.reset_index().groupby("date")["mktrf"].mean()
+
+    report_path = f"outputs/run_{now}/oos_{best_scoring}_{best_alloc}.html"
+
+    make_qs_report_from_equity(
+        equity_series=equity_curve,
+        rf_series=rf_series,
+        mktrf_series=mktrf_series,
+        title=f"OOS: {best_scoring}+{best_alloc}",
+        out_path=report_path,
+        freq="D",
+        s3_bucket=config.s3_bucket,
+    )
+
+    # Detect Report URL (Local vs S3)
+    if config.s3_bucket:
+        report_url = (
+            f"https://s3.console.aws.amazon.com/s3/object/{config.s3_bucket}?prefix={report_path}"
+        )
+    else:
+        abs_path = os.path.abspath(report_path)
+        report_url = f"file://{abs_path}"
+
+    return Output(
+        value={
+            "status": "success",
+            "report_path": report_path,
+            "final_equity": equity_curve.iloc[-1],
+        },
+        metadata={
+            "selected_strategy": f"{best_scoring} + {best_alloc}",
+            "is_sharpe": float(best_is_sharpe),
+            "oos_sharpe": float(metrics["sharpe"]),
+            "degradation_pct": float(degradation),
+            "oos_cagr_pct": float(metrics["ann_return"]),
+            "oos_max_dd_pct": float(metrics["max_drawdown"]),
+            "report_url": MetadataValue.url(report_url),
+        },
+    )
+
+
+# ASSET 7: Next Day Inference
+@asset(compute_kind="python")
+def next_day_inference(
+        context: AssetExecutionContext,
+        config: StrategyConfig,
+        model_matrix: pd.DataFrame,
+        trained_models: dict,
+        best_strategy_config: dict,
+        oos_report: dict,
+) -> Output[pd.DataFrame]:
+    """
+    PREDICTION ENGINE:
+    1. Takes the latest available data point (Today's Close).
+    2. Predicts Tomorrow's Return and Direction.
+    3. Generates a 'Buy/Sell/Hold' list based on the Optimal Strategy.
+    4. Calculates Best/Worst case portfolio scenarios.
+    """
+    # 1. Get Latest Data Snapshot
+    last_date = model_matrix.index.get_level_values("date").max()
+    context.log.info(f"Generating inference for trading date following: {last_date}")
+
+    latest_df = model_matrix[model_matrix.index.get_level_values("date") == last_date].copy()
+
+    # 2. Run Inference
+    pipeline_log = trained_models["logistic_pipeline"]
+    pipeline_lin = trained_models["linear_pipeline"]
+    features = trained_models["features"]
+
+    X_latest = latest_df[features]
+
+    # Predict Probabilities and Returns
+    prob_up = pipeline_log.predict_proba(X_latest)[:, 1]
+    expected_ret = pipeline_lin.predict(X_latest)
+
+    latest_df["prob_up"] = prob_up
+    latest_df["expected_return"] = expected_ret
+    latest_df["logistic_score"] = 2 * prob_up - 1
+
+    # LOGGING: Debug why we might have 0 trades
+    context.log.info(f"Prediction Stats -- Max Prob: {prob_up.max():.4f}, Min Prob: {prob_up.min():.4f}")
+    context.log.info(f"Return Stats -- Max Ret: {expected_ret.max():.4f}, Min Ret: {expected_ret.min():.4f}")
+
+    # 3. Apply The "Winning" Strategy Logic
+    best_scoring = best_strategy_config["scoring_method"]
+    best_alloc = best_strategy_config["allocation_strategy"]
+
+    context.log.info(f"Applying Winning Strategy: {best_scoring} + {best_alloc}")
+
+    SCORING_METHODS = {
+        "S1": lambda df: df["prob_up"] * df["expected_return"],
+        "S2": lambda df: (df["prob_up"] - 0.5) * df["expected_return"],
+        "S6": lambda df: (2 * df["prob_up"] - 1) * df["expected_return"].abs(),
+    }
+
+    latest_df["score"] = SCORING_METHODS[best_scoring](latest_df)
+
+    PROB_UP_THRESHOLD = 0.55
+    RET_THRESHOLD = 0.001
+
+    latest_df["agreed_long"] = (latest_df["prob_up"] > PROB_UP_THRESHOLD) & (
+            latest_df["expected_return"] > RET_THRESHOLD
+    )
+    latest_df["agreed_short"] = (latest_df["prob_up"] < (1 - PROB_UP_THRESHOLD)) & (
+            latest_df["expected_return"] < -RET_THRESHOLD
+    )
+
+    # Volatility Calculation
+    vol_series = (
+        model_matrix.loc[pd.IndexSlice[:, last_date], :]
+        .groupby("permno")["adj_prc_logret"]
+        .apply(lambda x: x.rolling(20).std().iloc[-1])
+    )
+    latest_df["volatility"] = vol_series
+
+    # Apply Allocation
+    alloc_kwargs = {
+        "long_target": 1.0,
+        "short_target": 1.0,
+        "max_position_size": 0.05,
+        "quantile_long_pct": 0.20,
+        "quantile_short_pct": 0.20,
+    }
+
+    weights = apply_allocation_strategy(
+        strategy_name=best_alloc,
+        scores=latest_df["score"],
+        long_mask=latest_df["agreed_long"],
+        short_mask=latest_df["agreed_short"],
+        volatility=latest_df["volatility"],
+        **alloc_kwargs,
+    )
+
+    latest_df["weight"] = weights
+
+    # 4. Filter for Actionable Trades
+    trades = latest_df[latest_df["weight"] != 0].copy()
+
+    # Handle the case where trades might be empty
+    if not trades.empty:
+        trades["action"] = trades["weight"].apply(lambda x: "BUY" if x > 0 else "SELL/SHORT")
+        trades["conviction"] = trades["score"].abs()
+        display_cols = ["prob_up", "expected_return", "weight", "action", "conviction"]
+        trade_list = trades[display_cols].sort_values("weight", ascending=False)
+
+        # 5. Risk / Scenario Analysis
+        port_exp_return = (trades["weight"] * trades["expected_return"]).sum()
+        avg_volatility = 0.015
+        port_vol_est = np.sqrt((trades["weight"] ** 2).sum()) * avg_volatility
+        worst_case = port_exp_return - 1.96 * port_vol_est
+        best_case = port_exp_return + 1.96 * port_vol_est
+    else:
+        # Fallback for 0 trades
+        context.log.warning("No trades generated for this date. Portfolio is 100% Cash.")
+        trade_list = pd.DataFrame(columns=["prob_up", "expected_return", "weight", "action", "conviction"])
+        port_exp_return = 0.0
+        worst_case = 0.0
+        best_case = 0.0
+
+    # 6. Visualization & Saving (In-Memory)
+
+    # Helper to save plot to RAM and upload/write
+    def save_plot_to_destination(filename_suffix):
+        # Derive path from previous report path
+        previous_report_path = oos_report["report_path"]
+        base_dir = os.path.dirname(previous_report_path)
+
+        # 1. Save figure to in-memory buffer
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        buf.seek(0)
+        plt.close()  # Close plot to free memory
+
+        # 2. Upload or Write
+        if config.s3_bucket:
+            s3 = boto3.client("s3")
+            s3_key = f"{base_dir}/{filename_suffix}"
+            context.log.info(f"Uploading {filename_suffix} to S3: {s3_key}")
+            s3.upload_fileobj(buf, config.s3_bucket, s3_key)
+            return f"https://s3.console.aws.amazon.com/s3/object/{config.s3_bucket}?prefix={s3_key}"
+        else:
+            # Local write
+            full_path = f"{base_dir}/{filename_suffix}"
+            os.makedirs(base_dir, exist_ok=True)
+            with open(full_path, "wb") as f:
+                f.write(buf.getbuffer())
+            context.log.info(f"Saved {filename_suffix} locally: {full_path}")
+            return f"file://{os.path.abspath(full_path)}"
+
+    # Plot 1: Distribution
+    plt.figure(figsize=(10, 6))
+    plt.hist(
+        latest_df["expected_return"] * 100,
+        bins=30,
+        alpha=0.7,
+        color="skyblue",
+        edgecolor="black",
+    )
+    plt.axvline(0, color="k", linestyle="--")
+    plt.title(f"Distribution of Predicted Returns for {last_date} (Universe)")
+    plt.xlabel("Predicted Return (%)")
+    plt.ylabel("Count of Tickers")
+
+    dist_url = save_plot_to_destination("forecast_distribution.png")
+
+    # Plot 2: Scenarios
+    plt.figure(figsize=(8, 6))
+    scenarios = ["Worst Case (95%)", "Expected", "Best Case (95%)"]
+    vals = [worst_case * 100, port_exp_return * 100, best_case * 100]
+    colors = ["red", "blue", "green"]
+    plt.bar(scenarios, vals, color=colors, alpha=0.7)
+    plt.title(f"Portfolio Forecast for Tomorrow")
+    plt.ylabel("Return (%)")
+    plt.grid(axis="y", alpha=0.3)
+
+    scenarios_url = save_plot_to_destination("forecast_scenarios.png")
+
+    return Output(
+        value=trade_list,
+        metadata={
+            "inference_date": str(last_date),
+            "portfolio_expected_return": f"{port_exp_return * 100:.2f}%",
+            "worst_case_95pct": f"{worst_case * 100:.2f}%",
+            "best_case_95pct": f"{best_case * 100:.2f}%",
+            "num_positions": len(trade_list),
+            "distribution_plot": MetadataValue.url(dist_url),
+            "scenarios_plot": MetadataValue.url(scenarios_url),
+            "top_longs": MetadataValue.md(
+                trade_list[trade_list["weight"] > 0].head(5).to_markdown() if not trade_list.empty else "No Longs"
+            ),
+            "full_trade_list": MetadataValue.md(
+                trade_list.to_markdown() if not trade_list.empty else "No Trades Generated"),
         },
     )
