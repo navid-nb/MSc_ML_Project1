@@ -1,9 +1,11 @@
+import logging
 from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
 
+logger = logging.getLogger(__name__)
 pd.set_option("future.no_silent_downcasting", True)
 
 
@@ -483,12 +485,14 @@ def build_final_matrix(df: pd.DataFrame) -> pd.DataFrame:
             seen.add(col)
 
     if duplicates:
-        print(f"   Warning: Duplicate columns added to feature list: {sorted(set(duplicates))}")
+        logger.info(
+            f"   Warning: Duplicate columns added to feature list: {sorted(set(duplicates))}"
+        )
 
     # Check for missing columns
     missing = [col for col in feature_cols if col not in df.columns]
     if missing:
-        print(
+        logger.info(
             f"   Warning: These feature columns are not in the DataFrame and will be ignored: {sorted(missing)}"
         )
 
@@ -502,7 +506,9 @@ def build_final_matrix(df: pd.DataFrame) -> pd.DataFrame:
     final_cols = lead_cols + target_cols + feature_cols
 
     dropped_columns = [col for col in df.columns if col not in final_cols]
-    print(f" Dropped {len(dropped_columns)} columns when building final matrix- dropped columns:")
-    print(dropped_columns)
+    logger.info(
+        f" Dropped {len(dropped_columns)} columns when building final matrix- dropped columns:"
+    )
+    logger.info(dropped_columns)
 
     return df[final_cols].copy()

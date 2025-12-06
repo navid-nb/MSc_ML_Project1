@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any, Dict, List, Optional
 
@@ -5,6 +6,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import wrds
+
+logger = logging.getLogger(__name__)
 
 
 def wrds_connect(wrds_user: str) -> wrds.Connection:
@@ -78,14 +81,14 @@ def extract_artifacts(
     for sqlfile, outfile in artifacts:
         outpath = os.path.join(outdir, outfile)
         if (not force) and os.path.isfile(outpath):
-            print(f"[skip] Already present: {outfile}")
+            logger.info(f"[skip] Already present: {outfile}")
             continue
         if force and os.path.isfile(outpath):
-            print(f"[overwrite] {outfile}")
+            logger.info(f"[overwrite] {outfile}")
             os.remove(outpath)
-        print(f"[extract] {sqlfile} -> {outfile}")
+        logger.info(f"[extract] {sqlfile} -> {outfile}")
         query_to_parquet(conn, sqlfile, outpath, params=params, chunk_size=chunk_size)
-        print(f"[ok] Saved {outfile}")
+        logger.info(f"[ok] Saved {outfile}")
 
 
 def assert_artifacts_present(outdir: str, artifacts: List[tuple[str, str]]) -> None:

@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 
@@ -5,6 +6,8 @@ import pandas as pd
 import quantstats as qs
 
 from functions.helpers._extract import ensure_dir
+
+logger = logging.getLogger(__name__)
 
 
 def _aggregate_simple_returns(returns: pd.Series, freq: str) -> pd.Series:
@@ -50,9 +53,7 @@ def upload_html_to_s3(
         try:
             import boto3
         except ImportError as e:
-            raise RuntimeError(
-                "boto3 is required for S3 uploads but is not installed."
-            ) from e
+            raise RuntimeError("boto3 is required for S3 uploads but is not installed.") from e
         s3_client = boto3.client("s3")
 
     s3_client.put_object(
@@ -62,7 +63,7 @@ def upload_html_to_s3(
         ContentType=content_type,
     )
     s3_uri = f"s3://{bucket}/{key}"
-    print(f"    Uploaded report to {s3_uri}")
+    logger.info(f"    Uploaded report to {s3_uri}")
     return s3_uri
 
 
@@ -155,7 +156,7 @@ def make_qs_report_from_equity(
                 html_report_content = f.read()
 
             upload_html_to_s3(html_report_content, bucket=s3_bucket, key=key)
-            print(f"   Mode:  S3 upload")
+            logger.info("   Mode:  S3 upload")
         finally:
             if tmp_path is not None:
                 try:
@@ -163,12 +164,16 @@ def make_qs_report_from_equity(
                 except OSError:
                     pass
 
-        print(f"   Freq:  {freq_label}")
-        print(f"   Period: {strat_excess.index.min().date()} to {strat_excess.index.max().date()}")
-        print(f"   Points: {len(strat_excess)}")
+        logger.info(f"   Freq:  {freq_label}")
+        logger.info(
+            f"   Period: {strat_excess.index.min().date()} to {strat_excess.index.max().date()}"
+        )
+        logger.info(f"   Points: {len(strat_excess)}")
 
     else:
-        # Local filesystem behavior (original)
+        # Local filesystem behavior
+        out_dir = os.path.dirname(out_path)
+        os.makedirs(out_dir, exist_ok=True)
         qs.reports.html(
             strat_excess,
             benchmark=bench_excess.to_frame("Market"),
@@ -177,11 +182,13 @@ def make_qs_report_from_equity(
             output=out_path,
             title=title,
         )
-        print(f"    Saved: {out_path}")
-        print(f"   Mode:  Local file")
-        print(f"   Freq:  {freq_label}")
-        print(f"   Period: {strat_excess.index.min().date()} to {strat_excess.index.max().date()}")
-        print(f"   Points: {len(strat_excess)}")
+        logger.info(f"    Saved: {out_path}")
+        logger.info("   Mode:  Local file")
+        logger.info(f"   Freq:  {freq_label}")
+        logger.info(
+            f"   Period: {strat_excess.index.min().date()} to {strat_excess.index.max().date()}"
+        )
+        logger.info(f"   Points: {len(strat_excess)}")
 
 
 def generate_oos_report(
@@ -202,7 +209,7 @@ def generate_oos_report(
     If s3_bucket is provided:
         - Renders the report into a temp local file, uploads HTML to S3, then deletes the temp file.
     """
-    print("Generating Out-Of-Sample HTML Report (Daily)")
+    logger.info("Generating Out-Of-Sample HTML Report (Daily)")
 
     # Ensure local output directory exists only in local mode
     if s3_bucket is None:
@@ -266,7 +273,7 @@ def generate_oos_report_monthly(
     If s3_bucket is provided:
         - Renders the report into a temp local file, uploads HTML to S3, then deletes the temp file.
     """
-    print("Generating Out-Of-Sample HTML Report (Monthly Aggregated)")
+    logger.info("Generating Out-Of-Sample HTML Report (Monthly Aggregated)")
 
     # Ensure local output directory exists only in local mode
     if s3_bucket is None:

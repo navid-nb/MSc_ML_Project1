@@ -2,6 +2,7 @@ import os
 
 os.environ["PYTHONWARNINGS"] = "ignore:pkg_resources is deprecated as an API:UserWarning"
 
+import logging
 import warnings
 from typing import Any, Dict, Literal, Optional, Sequence
 
@@ -28,11 +29,12 @@ from functions.helpers.data_cleanup import (
     prepare_ibes_actu_for_daily_merge,
     prepare_ibes_for_daily_merge,
 )
-from functions.helpers.data_extraction import wrds_extract_raw
 from functions.helpers.feature_engineering import (
     build_final_matrix,
     feature_augmentation,
 )
+
+logger = logging.getLogger(__name__)
 
 warnings.filterwarnings(
     "ignore",
@@ -118,7 +120,9 @@ def _safe_shift_by_permno(df: pd.DataFrame, cols: Sequence[str], shift: int) -> 
     present = [c for c in cols if c in out.columns]
     missing = [c for c in cols if c not in out.columns]
     if missing:
-        print(f"[warn] _safe_shift_by_permno: some requested columns not found in df -> {missing}")
+        logger.info(
+            f"[warn] _safe_shift_by_permno: some requested columns not found in df -> {missing}"
+        )
     if not present:
         return out
 
@@ -176,7 +180,7 @@ def _remove_leading_nans(
     out = out[group_cumsum > 0]
     total_rows = len(df)
     removed_pct = (total_rows - len(out)) / total_rows * 100 if total_rows else 0
-    print(
+    logger.info(
         f"[INFO] percentage of rows removed due to leading NaNs : {removed_pct:.4f}%  remove reason: {remove_reason}"
     )
 
@@ -243,7 +247,7 @@ def forward_fill_and_remove_initial_nans(
         "cons_cv",
     ]
     out = out.drop(cols_to_remove, axis=1)
-    print("removed these columns manually: ", cols_to_remove)
+    logger.info("removed these columns manually: ", cols_to_remove)
 
     if add_fill_source_columns:
         cols_with_nans = df.columns[df.isna().any()].tolist()
@@ -268,9 +272,9 @@ def forward_fill_and_remove_initial_nans(
     out = _remove_leading_nans(out, remove_reason="after forward filling empty cells")
 
     if out.isna().any().any():
-        print("WARNING: NaN values remain after forward fill and dropping leading NaNs.")
+        logger.info("WARNING: NaN values remain after forward fill and dropping leading NaNs.")
     else:
-        print("INFO: No NaN values remain after forward fill and dropping leading NaNs.")
+        logger.info("INFO: No NaN values remain after forward fill and dropping leading NaNs.")
 
     return out
 
@@ -368,7 +372,7 @@ def build_model_matrix_from_raw_data(
         pd.DataFrame: Final model matrix ready for predictive modeling.
     """
 
-    print(raw_data)
+    logger.info(raw_data)
 
     # Load
     dsf = parquet_to_df(raw_data["artifacts"], "dsf.parquet")
@@ -388,20 +392,20 @@ def build_model_matrix_from_raw_data(
     pre_qa_dsf(dsf)
     dsf = clean_dsf(dsf)
 
-    print("$$$$ df_prices initial shape : ", dsf.shape)
+    logger.info("$$$$ df_prices initial shape : ", dsf.shape)
 
     # adding FF
     pre_qa_ff(ff)
     df_prices = join_prices_with_ff(dsf, ff)
     post_join_qa_prices_with_ff(df_prices)
-    # print("$$$$ df_prices shape after joining FF: " , df_prices.shape)
+    # logger.info("$$$$ df_prices shape after joining FF: " , df_prices.shape)
 
     # adding IBES statsumu (EPS)
     pre_qa_ibes_statsumu(ibes)
     ibes_daily = prepare_ibes_for_daily_merge(ibes)
     df_prices = join_prices_with_ibes(df_prices, ibes_daily)
     post_join_qa_prices_with_ibes(df_prices)
-    # print("$$$$ df_prices shape after joining IBES stats: " , df_prices.shape)
+    # logger.info("$$$$ df_prices shape after joining IBES stats: " , df_prices.shape)
 
     # IBES actuals (EPS)
     pre_qa_ibes_actu(ibes_act)
@@ -414,47 +418,49 @@ def build_model_matrix_from_raw_data(
     )
     df_prices = join_prices_with_common_features(df_prices, common_features)
 
-    # print("$$$$ df_prices shape after joining IBES act: " , df_prices.shape)
+    # logger.info("$$$$ df_prices shape after joining IBES act: " , df_prices.shape)
     # impute null using ffill
     df_prices = forward_fill_and_remove_initial_nans(df_prices, add_fill_source_columns=False)
-    # print("$$$$ df_prices shape after forward_fill_and_remove_initial_nans: " , df_prices.shape)
+    # logger.info("$$$$ df_prices shape after forward_fill_and_remove_initial_nans: " , df_prices.shape)
 
     # feature_augmentation : adding technical indicators, ratios, lags ,...
     df_prices = feature_augmentation(df_prices)
     df_prices = _remove_leading_nans(df_prices, remove_reason="after feature augmentation")
-    # print("$$$$ df_prices shape after dd_technical_indicators: " , df_prices.shape)
+    # logger.info("$$$$ df_prices shape after dd_technical_indicators: " , df_prices.shape)
 
     # Final matrix
     model_df = build_final_matrix(df_prices)
     model_df = _remove_leading_nans(model_df, remove_reason="after build_final_matrix")
-    # print("$$$$ df_prices shape after build_model_matrix_from_df: " , model_df.shape)
+    # logger.info("$$$$ df_prices shape after build_model_matrix_from_df: " , model_df.shape)
 
-    print(f"[model] shape={model_df.shape}")
-    print(f"[model] index={list(model_df.index.names)}")
-    print(f"[model] columns={list(model_df.columns)}")
+    logger.info(f"[model] shape={model_df.shape}")
+    logger.info(f"[model] index={list(model_df.index.names)}")
+    logger.info(f"[model] columns={list(model_df.columns)}")
 
     # Ensure all stocks have the same date coverage
     final_matrix = align_and_fill_dates_across_tickers(all_stocks=model_df)
 
     # Data quality check: inspect adj_prc_logret_lead1 distribution
-    print("=== Data Quality Check: adj_prc_logret_lead1 ===")
-    print(f"Min value: {final_matrix['adj_prc_logret_lead1'].min():.6f}")
-    print(f"Max value: {final_matrix['adj_prc_logret_lead1'].max():.6f}")
-    print(f"Mean: {final_matrix['adj_prc_logret_lead1'].mean():.6f}")
-    print(f"Median: {final_matrix['adj_prc_logret_lead1'].median():.6f}")
-    print(f"Std Dev: {final_matrix['adj_prc_logret_lead1'].std():.6f}")
-    print(
+    logger.info("=== Data Quality Check: adj_prc_logret_lead1 ===")
+    logger.info(f"Min value: {final_matrix['adj_prc_logret_lead1'].min():.6f}")
+    logger.info(f"Max value: {final_matrix['adj_prc_logret_lead1'].max():.6f}")
+    logger.info(f"Mean: {final_matrix['adj_prc_logret_lead1'].mean():.6f}")
+    logger.info(f"Median: {final_matrix['adj_prc_logret_lead1'].median():.6f}")
+    logger.info(f"Std Dev: {final_matrix['adj_prc_logret_lead1'].std():.6f}")
+    logger.info(
         f"\nCount of extreme values (< -1.0): {(final_matrix['adj_prc_logret_lead1'] < -1.0).sum()}"
     )
-    print(f"Count of extreme values (> 1.0): {(final_matrix['adj_prc_logret_lead1'] > 1.0).sum()}")
+    logger.info(
+        f"Count of extreme values (> 1.0): {(final_matrix['adj_prc_logret_lead1'] > 1.0).sum()}"
+    )
 
     # Show rows with suspicious minimum values
     suspicious_rows = final_matrix[final_matrix["adj_prc_logret_lead1"] < -1.0].sort_values(
         "adj_prc_logret_lead1"
     )
     if len(suspicious_rows) > 0:
-        print("\n=== Suspicious rows with adj_prc_logret_lead1 < -1.0 ===")
-        print(suspicious_rows[["ticker", "adj_prc_logret_lead1"]].head(10))
+        logger.info("\n=== Suspicious rows with adj_prc_logret_lead1 < -1.0 ===")
+        logger.info(suspicious_rows[["ticker", "adj_prc_logret_lead1"]].head(10))
 
     return final_matrix
 
@@ -516,11 +522,11 @@ def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFram
     )
 
     # # Print the initial date for each ticker (permno) after 2016-06-01
-    # print("First date for each ticker (after 2016-06-01):")
+    # logger.info("First date for each ticker (after 2016-06-01):")
     # for permno, first_date in group_min_dates.items():
-    #     print(first_date)
+    #     logger.info(first_date)
     #     if pd.to_datetime(first_date) > pd.Timestamp("2016-06-01"):
-    #         print(f"Ticker {permno}: {first_date}")
+    #         logger.info(f"Ticker {permno}: {first_date}")
 
     max_start_date = group_min_dates.max()
 
@@ -552,11 +558,11 @@ def align_and_fill_dates_across_tickers(all_stocks: pd.DataFrame) -> pd.DataFram
             if not dates.equals(reference_dates):
                 raise ValueError(f"Date index mismatch found in permno {permno}.")
 
-    print(f"All groups have consistent date indices and {expected_len} rows each.")
+    logger.info(f"All groups have consistent date indices and {expected_len} rows each.")
 
-    print(filled_df.shape)
-    print(null_report(filled_df))
-    print(filled_df.index.names, filled_df.columns)
+    logger.info(filled_df.shape)
+    logger.info(null_report(filled_df))
+    logger.info(filled_df.index.names, filled_df.columns)
 
     return filled_df
 
@@ -567,6 +573,8 @@ if __name__ == "__main__":
     # limited to avoid downloading thousands of irrelevant securities.
     # By extracting broadly, tickers_list can be updated later without reconnecting.
     # Data sources: DSF, CRSP, Fama-French, IBES (see functions/migrations).
+    from functions.helpers.data_extraction import wrds_extract_raw
+
     raw_data = wrds_extract_raw(
         wrds_user="your-wrds-username",
         start="2010-01-01",

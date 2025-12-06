@@ -1,3 +1,34 @@
+import datetime
+import logging
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import ElasticNet, LogisticRegression
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    mean_squared_error,
+    r2_score,
+)
+from sklearn.model_selection import GridSearchCV
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+from functions.helpers._extract import ensure_dir
+from functions.helpers.allocation_strategies import apply_allocation_strategy
+from functions.helpers.data_extraction import wrds_extract_raw
+from functions.helpers.output_generation import make_qs_report_from_equity
+from functions.helpers.portfolio_backtest import (
+    calculate_performance_metrics,
+    calculate_portfolio_returns,
+)
+from functions.helpers.split_window import split_rolling_window, split_train_and_test
+from run_data import build_model_matrix_from_raw_data
+
+logger = logging.getLogger(__name__)
+
+
 def run_full_pipeline(
     start_date: str = "2010-01-01",
     end_date: str = "2025-01-01",
@@ -6,34 +37,6 @@ def run_full_pipeline(
     input_prefix: str | None = None,
     output_prefix: str | None = None,
 ):
-    import datetime
-
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import pandas as pd
-
-    from sklearn.linear_model import ElasticNet, LogisticRegression
-    from sklearn.metrics import (
-        classification_report,
-        confusion_matrix,
-        mean_squared_error,
-        r2_score,
-    )
-    from sklearn.model_selection import GridSearchCV
-    from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import StandardScaler
-
-    from functions.helpers._extract import ensure_dir
-    from functions.helpers.allocation_strategies import apply_allocation_strategy
-    from functions.helpers.data_extraction import wrds_extract_raw
-    from functions.helpers.output_generation import make_qs_report_from_equity
-    from functions.helpers.portfolio_backtest import (
-        calculate_performance_metrics,
-        calculate_portfolio_returns,
-    )
-    from functions.helpers.split_window import split_rolling_window, split_train_and_test
-    from run_data import build_model_matrix_from_raw_data
-
     # =============================================================
     # 1. Data build & cleaning (CRSP/DSF/IBES/FF)
     # =============================================================
@@ -106,9 +109,11 @@ def run_full_pipeline(
         target_folds_count=target_folds_count,
     )
 
-    print("\nins_training_window_size", "ins_validation_window_size", "step_size", "actual_folds")
-    print(ins_training_window_size, ins_validation_window_size, step_size, actual_folds)
-    print("\n")
+    logger.info(
+        "\nins_training_window_size", "ins_validation_window_size", "step_size", "actual_folds"
+    )
+    logger.info(ins_training_window_size, ins_validation_window_size, step_size, actual_folds)
+    logger.info("\n")
 
     # =============================================================
     # 3. Logistic Regression (Direction)
@@ -121,18 +126,18 @@ def run_full_pipeline(
     DIR_binary = (df["adj_prc_logret_lead1"] > 0).astype(int)  # 1 = up, 0 = down
 
     # Check class balance (market neutrality ~ 50/50)
-    print("\nBinary Target Distribution")
-    print(
+    logger.info("\nBinary Target Distribution")
+    logger.info(
         f" Up (1):   {(DIR_binary == 1).sum():,} observations ({(DIR_binary == 1).mean() * 100:.1f}%)"  # noqa
     )  # noqa
-    print(
+    logger.info(
         f" Down (0): {(DIR_binary == 0).sum():,} observations ({(DIR_binary == 0).mean() * 100:.1f}%)"  # noqa
     )  # noqa
-    print(f" Total:    {len(DIR_binary):,} observations")
+    logger.info(f" Total:    {len(DIR_binary):,} observations")
 
     # Feature columns: everything except ticker, target, and the index columns, permno and date.
     num_pred_cols = [c for c in df.columns if c not in (["ticker", "adj_prc_logret_lead1"])]
-    print(f"\nUsing {len(num_pred_cols)} features for prediction")
+    logger.info(f"\nUsing {len(num_pred_cols)} features for prediction")
 
     # =============================================================
     # 3.2 Hyperparameter Tuning - L1 Ratio Grid
@@ -150,8 +155,8 @@ def run_full_pipeline(
     if HYPERPARAMETER_TUNING:
         l1_ratios = [0.8, 0.9]
         C_values = [0.1, 0.5, 1.0]
-        print(f"Testing {len(l1_ratios)} l1_ratio values")
-        print(f"L1 ratio range: [{min(l1_ratios):.3f}, {max(l1_ratios):.3f}]")
+        logger.info(f"Testing {len(l1_ratios)} l1_ratio values")
+        logger.info(f"L1 ratio range: [{min(l1_ratios):.3f}, {max(l1_ratios):.3f}]")
 
         # Build explicit rolling CV splits identical to the earlier logic
         cv_splits = []
@@ -212,11 +217,11 @@ def run_full_pipeline(
         C = grid.best_params_["logistic__C"]
         min_error = 1 - grid.best_score_
 
-        print("\nLogistic Regression - Optimal Hyperparameters:")
-        print(f"  l1_ratio* = {l1_ratio_star:.3f}")
-        print(f"  C* = {C}")
-        print(f"  Minimum Average Classification Error Rate = {min_error:.4f}")
-        print(f"  Validation Accuracy = {1 - min_error:.4f}")
+        logger.info("\nLogistic Regression - Optimal Hyperparameters:")
+        logger.info(f"  l1_ratio* = {l1_ratio_star:.3f}")
+        logger.info(f"  C* = {C}")
+        logger.info(f"  Minimum Average Classification Error Rate = {min_error:.4f}")
+        logger.info(f"  Validation Accuracy = {1 - min_error:.4f}")
 
         # Aggregate mean validation error per l1_ratio (best across C for that l1_ratio)
         cv_df = pd.DataFrame(grid.cv_results_)
@@ -239,7 +244,7 @@ def run_full_pipeline(
         # Use hardcoded l1_ratio value
         l1_ratio_star = 0.9
         C = 0.1
-        print(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star}")
+        logger.info(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star}")
 
     # =============================================================
     # 3.3 Final Model Estimation and Out-of-Sample Evaluation
@@ -278,10 +283,10 @@ def run_full_pipeline(
     coefficients_log = final_pipeline_log.named_steps["logistic"].coef_[0]
     intercept_log = final_pipeline_log.named_steps["logistic"].intercept_[0]
 
-    print(f"Final model fitted on {len(X_train_full):,} training observations")
-    print(f"Test set contains {len(X_test):,} observations")
-    print(f"\nIntercept: {intercept_log:.6f}")
-    print(
+    logger.info(f"Final model fitted on {len(X_train_full):,} training observations")
+    logger.info(f"Test set contains {len(X_test):,} observations")
+    logger.info(f"\nIntercept: {intercept_log:.6f}")
+    logger.info(
         f"Number of non-zero coefficients: {(coefficients_log != 0).sum()}/{len(coefficients_log)}"  # noqa
     )  # noqa
 
@@ -296,17 +301,19 @@ def run_full_pipeline(
     # Confusion matrix
     conf_matrix = confusion_matrix(y_test, y_pred_test)
 
-    print("=" * 60)
-    print("LOGISTIC REGRESSION - OUT-OF-SAMPLE PERFORMANCE")
-    print("=" * 60)
-    print(f"\nTest Set Accuracy:           {test_accuracy:.4f}")
-    print(f"Test Set Error Rate:         {test_error:.4f}")
-    print("\nConfusion Matrix:")
-    print("                 Predicted Down  Predicted Up")
-    print(f"Actual Down      {conf_matrix[0, 0]:>14,}  {conf_matrix[0, 1]:>12,}")
-    print(f"Actual Up        {conf_matrix[1, 0]:>14,}  {conf_matrix[1, 1]:>12,}")
+    logger.info("=" * 60)
+    logger.info("LOGISTIC REGRESSION - OUT-OF-SAMPLE PERFORMANCE")
+    logger.info("=" * 60)
+    logger.info(f"\nTest Set Accuracy:           {test_accuracy:.4f}")
+    logger.info(f"Test Set Error Rate:         {test_error:.4f}")
+    logger.info("\nConfusion Matrix:")
+    logger.info("                 Predicted Down  Predicted Up")
+    logger.info(f"Actual Down      {conf_matrix[0, 0]:>14,}  {conf_matrix[0, 1]:>12,}")
+    logger.info(f"Actual Up        {conf_matrix[1, 0]:>14,}  {conf_matrix[1, 1]:>12,}")
 
-    print(f"\n{classification_report(y_test, y_pred_test, target_names=['Down (0)', 'Up (1)'])}")
+    logger.info(
+        f"\n{classification_report(y_test, y_pred_test, target_names=['Down (0)', 'Up (1)'])}"
+    )
 
     # Analyze most influential predictors
     coef_df = pd.DataFrame({"feature": num_pred_cols, "coefficient": coefficients_log})
@@ -314,8 +321,8 @@ def run_full_pipeline(
     coef_df["abs_coefficient"] = coef_df["coefficient"].abs()
     coef_df = coef_df.sort_values("abs_coefficient", ascending=False)
 
-    print("\nTop 10 Most Influential Predictors (Non-Zero Coefficients):")
-    print(coef_df.head(10).to_string(index=False))
+    logger.info("\nTop 10 Most Influential Predictors (Non-Zero Coefficients):")
+    logger.info(coef_df.head(10).to_string(index=False))
 
     # =============================================================
     # 4. Linear Regression (Magnitude)
@@ -329,12 +336,14 @@ def run_full_pipeline(
     y_continuous = df["adj_prc_logret_lead1"]
 
     # Distribution statistics
-    print("\nContinuous Target Distribution")
-    print(f"  Mean:   {y_continuous.mean():>10.6f}")
-    print(f"  Std:    {y_continuous.std():>10.6f}")
-    print(f"  Range:  [{y_continuous.min():.6f}, {y_continuous.max():.6f}]")
-    print(f"  Total:  {len(y_continuous):,} observations")
-    print(f"\nUsing {len(num_pred_cols)} features for prediction (same as logistic regression)")
+    logger.info("\nContinuous Target Distribution")
+    logger.info(f"  Mean:   {y_continuous.mean():>10.6f}")
+    logger.info(f"  Std:    {y_continuous.std():>10.6f}")
+    logger.info(f"  Range:  [{y_continuous.min():.6f}, {y_continuous.max():.6f}]")
+    logger.info(f"  Total:  {len(y_continuous):,} observations")
+    logger.info(
+        f"\nUsing {len(num_pred_cols)} features for prediction (same as logistic regression)"
+    )
 
     # =============================================================
     # 4.2 Hyperparameter Tuning - L1 Ratio Grid
@@ -353,9 +362,9 @@ def run_full_pipeline(
         l1_ratios_lin = [0.4, 0.5, 0.6]
         alpha_candidates = [0.000005, 0.00005, 0.0005, 0.000001, 0.00001, 0.0001]
         alpha_fixed = None  # Not used when tuning; preserved name for compatibility
-        print(f"Testing {len(l1_ratios_lin)} l1_ratio values")
-        print(f"L1 ratio range: [{min(l1_ratios_lin):.3f}, {max(l1_ratios_lin):.3f}]")
-        print(f"Alpha (fixed): {alpha_fixed}")
+        logger.info(f"Testing {len(l1_ratios_lin)} l1_ratio values")
+        logger.info(f"L1 ratio range: [{min(l1_ratios_lin):.3f}, {max(l1_ratios_lin):.3f}]")
+        logger.info(f"Alpha (fixed): {alpha_fixed}")
 
         # Build explicit rolling CV splits identical to earlier logic
         cv_splits = []
@@ -414,10 +423,10 @@ def run_full_pipeline(
         alpha_fixed = grid.best_params_["lasso__alpha"]
         min_rmse = -grid.best_score_
 
-        print("\nLinear Regression - Optimal Hyperparameters:")
-        print(f"  l1_ratio* = {l1_ratio_star_lin}")
-        print(f"  alpha* = {alpha_fixed}")
-        print(f"  Minimum Average RMSE = {min_rmse:.6f}")
+        logger.info("\nLinear Regression - Optimal Hyperparameters:")
+        logger.info(f"  l1_ratio* = {l1_ratio_star_lin}")
+        logger.info(f"  alpha* = {alpha_fixed}")
+        logger.info(f"  Minimum Average RMSE = {min_rmse:.6f}")
 
         cv_df = pd.DataFrame(grid.cv_results_)
         # Convert to RMSE
@@ -444,7 +453,9 @@ def run_full_pipeline(
         # Use hardcoded l1_ratio value
         l1_ratio_star_lin = 0.5
         alpha_fixed = 0.0001
-        print(f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star_lin}")
+        logger.info(
+            f"Skipping hyperparameter tuning. Using hardcoded l1_ratio = {l1_ratio_star_lin}"
+        )
 
     # =============================================================
     # 4.3 Final Model Estimation and Out-of-Sample Evaluation
@@ -481,10 +492,10 @@ def run_full_pipeline(
     coefficients_lin = final_pipeline_lin.named_steps["lasso"].coef_
     intercept_lin = final_pipeline_lin.named_steps["lasso"].intercept_
 
-    print(f"Final model fitted on {len(X_train_full_lin):,} training observations")
-    print(f"Test set contains {len(X_test_lin):,} observations")
-    print(f"\nIntercept: {intercept_lin:.6f}")
-    print(
+    logger.info(f"Final model fitted on {len(X_train_full_lin):,} training observations")
+    logger.info(f"Test set contains {len(X_test_lin):,} observations")
+    logger.info(f"\nIntercept: {intercept_lin:.6f}")
+    logger.info(
         f"Number of non-zero coefficients: {(coefficients_lin != 0).sum()}/{len(coefficients_lin)}"  # noqa
     )  # noqa
 
@@ -496,18 +507,18 @@ def run_full_pipeline(
     test_r2 = r2_score(y_test_lin, y_pred_test_lin)
     test_mae = np.mean(np.abs(y_test_lin - y_pred_test_lin))
 
-    print("=" * 60)
-    print("LINEAR REGRESSION - OUT-OF-SAMPLE PERFORMANCE")
-    print("=" * 60)
-    print(f"\nTest Set RMSE:               {test_rmse:.6f}")
-    print(f"Test Set R²:                 {test_r2:.6f}")
-    print(f"Test Set MAE:                {test_mae:.6f}")
-    print("\nBaseline (predicting mean):")
+    logger.info("=" * 60)
+    logger.info("LINEAR REGRESSION - OUT-OF-SAMPLE PERFORMANCE")
+    logger.info("=" * 60)
+    logger.info(f"\nTest Set RMSE:               {test_rmse:.6f}")
+    logger.info(f"Test Set R²:                 {test_r2:.6f}")
+    logger.info(f"Test Set MAE:                {test_mae:.6f}")
+    logger.info("\nBaseline (predicting mean):")
     baseline_rmse = np.sqrt(
         mean_squared_error(y_test_lin, [y_train_full_lin.mean()] * len(y_test_lin))
     )
-    print(f"Baseline RMSE:               {baseline_rmse:.6f}")
-    print(
+    logger.info(f"Baseline RMSE:               {baseline_rmse:.6f}")
+    logger.info(
         f"Improvement over baseline:   {((baseline_rmse - test_rmse) / baseline_rmse * 100):.2f}%"
     )
 
@@ -517,8 +528,8 @@ def run_full_pipeline(
     coef_df_lin["abs_coefficient"] = coef_df_lin["coefficient"].abs()
     coef_df_lin = coef_df_lin.sort_values("abs_coefficient", ascending=False)
 
-    print("\nTop 10 Most Influential Predictors (Non-Zero Coefficients):")
-    print(coef_df_lin.head(10).to_string(index=False))
+    logger.info("\nTop 10 Most Influential Predictors (Non-Zero Coefficients):")
+    logger.info(coef_df_lin.head(10).to_string(index=False))
 
     # =============================================================
     # 5. Signal Confirmation & Trading Universe Selection
@@ -588,21 +599,21 @@ def run_full_pipeline(
     # ============================================================================
     # Output 1: Agreement Statistics (over the combined IS+OOS container)
     # ============================================================================
-    print("=" * 80)
-    print("Ensemble Agreement (Both Models Must Agree)")
-    print("=" * 80)
-    print("\nAgreement Statistics:")
-    print(
+    logger.info("=" * 80)
+    logger.info("Ensemble Agreement (Both Models Must Agree)")
+    logger.info("=" * 80)
+    logger.info("\nAgreement Statistics:")
+    logger.info(
         f"  Both Agree LONG:   {df_signals['agreed_long'].sum():>6,} ({df_signals['agreed_long'].mean()*100:>5.1f}%)"
     )
-    print(
+    logger.info(
         f"  Both Agree SHORT:  {df_signals['agreed_short'].sum():>6,} ({df_signals['agreed_short'].mean()*100:>5.1f}%)"
     )
-    print("  -------------------------------------")
-    print(
+    logger.info("  -------------------------------------")
+    logger.info(
         f"  Total Agreement:   {df_signals['agreed_any'].sum():>6,} ({df_signals['agreed_any'].mean()*100:>5.1f}%)"
     )
-    print(
+    logger.info(
         f"  Disagreement:      {df_signals['disagreed'].sum():>6,} ({df_signals['disagreed'].mean()*100:>5.1f}%)"
     )
 
@@ -612,36 +623,36 @@ def run_full_pipeline(
     long_universe = df_signals[df_signals["agreed_long"]].copy()
     short_universe = df_signals[df_signals["agreed_short"]].copy()
 
-    print("\n" + "=" * 80)
-    print("Trading Universe Breakdown by Direction")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("Trading Universe Breakdown by Direction")
+    logger.info("=" * 80)
 
-    print(f"\nLONG Universe:  {len(long_universe):>6,} observations")
+    logger.info(f"\nLONG Universe:  {len(long_universe):>6,} observations")
     if len(long_universe) > 0:
-        print(f"   Mean prob(up):       {long_universe['prob_up'].mean():.4f}")
-        print(f"   Mean E[R]:           {long_universe['expected_return'].mean():.6f}")
-        print(f"   Mean ensemble score: {long_universe['ensemble_score'].mean():.4f}")
+        logger.info(f"   Mean prob(up):       {long_universe['prob_up'].mean():.4f}")
+        logger.info(f"   Mean E[R]:           {long_universe['expected_return'].mean():.6f}")
+        logger.info(f"   Mean ensemble score: {long_universe['ensemble_score'].mean():.4f}")
     else:
-        print("   (No long candidates)")
+        logger.info("   (No long candidates)")
 
-    print(f"\nSHORT Universe: {len(short_universe):>6,} observations")
+    logger.info(f"\nSHORT Universe: {len(short_universe):>6,} observations")
     if len(short_universe) > 0:
-        print(f"   Mean prob(up):       {short_universe['prob_up'].mean():.4f}")
-        print(f"   Mean E[R]:           {short_universe['expected_return'].mean():.6f}")
-        print(f"   Mean ensemble score: {short_universe['ensemble_score'].mean():.4f}")
+        logger.info(f"   Mean prob(up):       {short_universe['prob_up'].mean():.4f}")
+        logger.info(f"   Mean E[R]:           {short_universe['expected_return'].mean():.6f}")
+        logger.info(f"   Mean ensemble score: {short_universe['ensemble_score'].mean():.4f}")
     else:
-        print("   (No short candidates)")
+        logger.info("   (No short candidates)")
 
     # =============================================================
     # 6. Strategy Selection (In-Sample Performance)
     # =============================================================
 
-    print("=" * 80)
-    print("STRATEGY SELECTION ON IN-SAMPLE DATA")
-    print("=" * 80)
-    print("\nNote: Strategy selection uses in-sample Sharpe ratio")
-    print("      This simulates a realistic scenario where you only have historical data")
-    print("      Expect performance degradation when applying to out-of-sample data")
+    logger.info("=" * 80)
+    logger.info("STRATEGY SELECTION ON IN-SAMPLE DATA")
+    logger.info("=" * 80)
+    logger.info("\nNote: Strategy selection uses in-sample Sharpe ratio")
+    logger.info("      This simulates a realistic scenario where you only have historical data")
+    logger.info("      Expect performance degradation when applying to out-of-sample data")
 
     # =============================================================
     # 6.1 Define Methods & Strategies
@@ -670,16 +681,16 @@ def run_full_pipeline(
     QUANTILE_LONG_PCT = 0.20
     QUANTILE_SHORT_PCT = 0.20
 
-    print("\nConfiguration:")
-    print(f"  Scoring methods: {len(SCORING_METHODS)}")
-    print(f"  Allocation strategies: {len(ALLOCATION_STRATEGIES)}")
-    print(f"  Total combinations: {len(SCORING_METHODS) * len(ALLOCATION_STRATEGIES)}")
+    logger.info("\nConfiguration:")
+    logger.info(f"  Scoring methods: {len(SCORING_METHODS)}")
+    logger.info(f"  Allocation strategies: {len(ALLOCATION_STRATEGIES)}")
+    logger.info(f"  Total combinations: {len(SCORING_METHODS) * len(ALLOCATION_STRATEGIES)}")
 
     # =============================================================
     # 6.2 Test All Combinations (In-Sample)
     # =============================================================
 
-    print(
+    logger.info(
         f"\nTesting {len(SCORING_METHODS)} × {len(ALLOCATION_STRATEGIES)} = {len(SCORING_METHODS) * len(ALLOCATION_STRATEGIES)} combinations on in-sample data..."
     )
 
@@ -722,10 +733,10 @@ def run_full_pipeline(
         lambda x: x.fillna(x.median())
     )
 
-    print(
+    logger.info(
         f"  In-sample period: {df_ins_signals.index.get_level_values('date').min()} to {df_ins_signals.index.get_level_values('date').max()}"
     )
-    print(f"  Observations: {len(df_ins_signals):,}")
+    logger.info(f"  Observations: {len(df_ins_signals):,}")
 
     # Import functions
 
@@ -813,12 +824,12 @@ def run_full_pipeline(
                     }
                 )
 
-                print(
+                logger.info(
                     f"  [{combo_count:2d}/{len(SCORING_METHODS)*len(ALLOCATION_STRATEGIES):2d}] {score_name} + {alloc_strategy}: Sharpe = {metrics['sharpe']:.3f}"
                 )
 
             except Exception as e:
-                print(
+                logger.info(
                     f"  [{combo_count:2d}/{len(SCORING_METHODS)*len(ALLOCATION_STRATEGIES):2d}] {score_name} + {alloc_strategy}: ERROR - {str(e)[:50]}"
                 )
                 errors.append(
@@ -830,50 +841,50 @@ def run_full_pipeline(
     # 6.3 Display Results
     # =============================================================
 
-    print("=" * 80)
-    print("IN-SAMPLE RESULTS")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("IN-SAMPLE RESULTS")
+    logger.info("=" * 80)
 
     results_df = pd.DataFrame(results)
 
     if len(results_df) > 0:
-        print(
+        logger.info(
             f"\nSuccessfully tested: {len(results_df)}/{len(SCORING_METHODS) * len(ALLOCATION_STRATEGIES)} combinations"
         )
 
         # Top 10 strategies
-        print("\nTop 10 Strategies by Sharpe Ratio:")
-        print("-" * 80)
+        logger.info("\nTop 10 Strategies by Sharpe Ratio:")
+        logger.info("-" * 80)
         top_strategies = results_df.nlargest(10, "sharpe")[
             ["scoring_method", "allocation_strategy", "sharpe", "ann_return", "ann_vol"]
         ]
-        print(top_strategies.to_string(index=False))
+        logger.info(top_strategies.to_string(index=False))
 
         # Comparison matrix
-        print("\nSharpe Ratio Matrix:")
-        print("-" * 80)
+        logger.info("\nSharpe Ratio Matrix:")
+        logger.info("-" * 80)
         pivot_sharpe = results_df.pivot(
             index="allocation_strategy", columns="scoring_method", values="sharpe"
         )
-        print(pivot_sharpe.to_string(float_format=lambda x: f"{x:.3f}"))
+        logger.info(pivot_sharpe.to_string(float_format=lambda x: f"{x:.3f}"))
 
         # Select optimal
-        print("=" * 80)
-        print("OPTIMAL STRATEGY (Selected on In-Sample Data)")
-        print("=" * 80)
+        logger.info("=" * 80)
+        logger.info("OPTIMAL STRATEGY (Selected on In-Sample Data)")
+        logger.info("=" * 80)
 
         best_combo = results_df.loc[results_df["sharpe"].idxmax()]
-        print(
+        logger.info(
             f"\n  Scoring Method:      {best_combo['scoring_method']} - {best_combo['scoring_desc']}"
         )
-        print(
+        logger.info(
             f"  Allocation Strategy: {best_combo['allocation_strategy']} - {best_combo['allocation_desc']}"
         )
-        print("\n  In-Sample Performance:")
-        print(f"    Sharpe Ratio:        {best_combo['sharpe']:.3f}")
-        print(f"    Ann. Return:         {best_combo['ann_return']:.2f}%")
-        print(f"    Ann. Volatility:     {best_combo['ann_vol']:.2f}%")
-        print(f"    Max Drawdown:        {best_combo['max_drawdown']:.2f}%")
+        logger.info("\n  In-Sample Performance:")
+        logger.info(f"    Sharpe Ratio:        {best_combo['sharpe']:.3f}")
+        logger.info(f"    Ann. Return:         {best_combo['ann_return']:.2f}%")
+        logger.info(f"    Ann. Volatility:     {best_combo['ann_vol']:.2f}%")
+        logger.info(f"    Max Drawdown:        {best_combo['max_drawdown']:.2f}%")
 
         # Store for Section 7
         strategy_comparison_results = results_df
@@ -882,21 +893,21 @@ def run_full_pipeline(
         optimal_score_col = SCORING_METHODS[optimal_scoring_method][0]
 
         # Overfitting note
-        print("=" * 80)
-        print("OVERFITTING EXPECTATIONS")
-        print("=" * 80)
-        print(f"  Tested {len(results_df)} strategy combinations")
-        print("  Expected out-of-sample degradation: 15-30%")
-        print(
+        logger.info("=" * 80)
+        logger.info("OVERFITTING EXPECTATIONS")
+        logger.info("=" * 80)
+        logger.info(f"  Tested {len(results_df)} strategy combinations")
+        logger.info("  Expected out-of-sample degradation: 15-30%")
+        logger.info(
             f"  If IS Sharpe = {best_combo['sharpe']:.3f}, expect OOS Sharpe between {best_combo['sharpe']*0.70:.3f} and {best_combo['sharpe']*0.85:.3f}"
         )
-        print("\n  Section 7 will evaluate this strategy on out-of-sample data")
+        logger.info("\n  Section 7 will evaluate this strategy on out-of-sample data")
 
     else:
-        print("\nNo successful strategy combinations")
+        logger.info("\nNo successful strategy combinations")
 
     if len(errors) > 0:
-        print(f"\n{len(errors)} combinations failed")
+        logger.info(f"\n{len(errors)} combinations failed")
 
     # =============================================================
     # 7. Out-of-Sample Evaluation (Final Performance Test)
@@ -907,9 +918,9 @@ def run_full_pipeline(
     # Options: "optimal" (best strategy only), "top5" (top 5 strategies), "all" (all 15 combinations)
     EVALUATION_SCOPE = "top5"  # Change to "top5" or "all" to evaluate/output multiple strategies
 
-    print("=" * 80)
-    print("OUT-OF-SAMPLE EVALUATION")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("OUT-OF-SAMPLE EVALUATION")
+    logger.info("=" * 80)
 
     # =============================================================
     # 7.1 Prepare Out-of-Sample Data
@@ -939,10 +950,10 @@ def run_full_pipeline(
         lambda x: x.fillna(x.median())
     )
 
-    print(
+    logger.info(
         f"\nOut-of-sample period: {df_oos_signals.index.get_level_values('date').min()} to {df_oos_signals.index.get_level_values('date').max()}"
     )
-    print(f"Observations: {len(df_oos_signals):,}")
+    logger.info(f"Observations: {len(df_oos_signals):,}")
 
     # =============================================================
     # 7.2 Determine Which Strategies to Evaluate
@@ -950,24 +961,24 @@ def run_full_pipeline(
 
     if EVALUATION_SCOPE == "optimal":
         strategies_to_evaluate = [(optimal_scoring_method, optimal_allocation_strategy)]
-        print("\nScope: OPTIMAL strategy only")
-        print(f"  Strategy: {optimal_scoring_method} + {optimal_allocation_strategy}")
+        logger.info("\nScope: OPTIMAL strategy only")
+        logger.info(f"  Strategy: {optimal_scoring_method} + {optimal_allocation_strategy}")
     elif EVALUATION_SCOPE == "top5":
         # Get top 5 from in-sample results
         top5 = strategy_comparison_results.nlargest(5, "sharpe")[
             ["scoring_method", "allocation_strategy"]
         ]
         strategies_to_evaluate = list(top5.itertuples(index=False, name=None))
-        print("\nScope: TOP 5 strategies")
+        logger.info("\nScope: TOP 5 strategies")
         for i, (sm, as_) in enumerate(strategies_to_evaluate, 1):
-            print(f"  {i}. {sm} + {as_}")
+            logger.info(f"  {i}. {sm} + {as_}")
     elif EVALUATION_SCOPE == "all":
         # Evaluate all combinations
         strategies_to_evaluate = []
         for sm in SCORING_METHODS.keys():
             for as_ in ALLOCATION_STRATEGIES:
                 strategies_to_evaluate.append((sm, as_))
-        print(f"\nScope: ALL {len(strategies_to_evaluate)} combinations")
+        logger.info(f"\nScope: ALL {len(strategies_to_evaluate)} combinations")
     else:
         raise ValueError(f"Invalid EVALUATION_SCOPE: {EVALUATION_SCOPE}")
 
@@ -975,9 +986,9 @@ def run_full_pipeline(
     # 7.3 Evaluate Each Strategy on Out-of-Sample Data
     # =============================================================
 
-    print("=" * 80)
-    print("EVALUATING STRATEGIES OUT-OF-SAMPLE")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("EVALUATING STRATEGIES OUT-OF-SAMPLE")
+    logger.info("=" * 80)
 
     oos_results = []
 
@@ -1056,30 +1067,30 @@ def run_full_pipeline(
                 }
             )
 
-            print(
+            logger.info(
                 f"  [{idx_strat:2}/{len(strategies_to_evaluate)}] {scoring_method} + {allocation_strategy}: Sharpe = {metrics_oos['sharpe']:.3f}"
             )
 
         except Exception as e:
-            print(
+            logger.info(
                 f"  [{idx_strat:2}/{len(strategies_to_evaluate)}] {scoring_method} + {allocation_strategy}: ERROR - {str(e)}"
             )
 
     # Create results DataFrame
     oos_results_df = pd.DataFrame(oos_results)
 
-    print("=" * 80)
-    print("OUT-OF-SAMPLE RESULTS")
-    print("=" * 80)
-    print(
+    logger.info("=" * 80)
+    logger.info("OUT-OF-SAMPLE RESULTS")
+    logger.info("=" * 80)
+    logger.info(
         f"\nSuccessfully evaluated: {len(oos_results_df)}/{len(strategies_to_evaluate)} strategies"
     )
 
     if len(oos_results_df) > 0:
-        print("\nTop strategies by OOS Sharpe Ratio:")
-        print("-" * 80)
+        logger.info("\nTop strategies by OOS Sharpe Ratio:")
+        logger.info("-" * 80)
         top_display = oos_results_df.nlargest(min(10, len(oos_results_df)), "sharpe_oos")
-        print(
+        logger.info(
             top_display[
                 [
                     "scoring_method",
@@ -1095,21 +1106,23 @@ def run_full_pipeline(
         best_oos_idx = oos_results_df["sharpe_oos"].idxmax()
         best_oos = oos_results_df.loc[best_oos_idx]
 
-        print("=" * 80)
-        print("BEST OUT-OF-SAMPLE STRATEGY")
-        print("=" * 80)
-        print(f"  Scoring Method:      {best_oos['scoring_method']}")
-        print(f"  Allocation Strategy: {best_oos['allocation_strategy']}")
-        print(f"  OOS Sharpe Ratio:    {best_oos['sharpe_oos']:.3f}")
-        print(f"  OOS Ann. Return:     {best_oos['ann_return_oos']:.2f}%")
-        print(f"  OOS Ann. Volatility: {best_oos['ann_vol_oos']:.2f}%")
-        print(f"  OOS Max Drawdown:    {best_oos['max_dd_oos']:.2f}%")
+        logger.info("=" * 80)
+        logger.info("BEST OUT-OF-SAMPLE STRATEGY")
+        logger.info("=" * 80)
+        logger.info(f"  Scoring Method:      {best_oos['scoring_method']}")
+        logger.info(f"  Allocation Strategy: {best_oos['allocation_strategy']}")
+        logger.info(f"  OOS Sharpe Ratio:    {best_oos['sharpe_oos']:.3f}")
+        logger.info(f"  OOS Ann. Return:     {best_oos['ann_return_oos']:.2f}%")
+        logger.info(f"  OOS Ann. Volatility: {best_oos['ann_vol_oos']:.2f}%")
+        logger.info(f"  OOS Max Drawdown:    {best_oos['max_dd_oos']:.2f}%")
 
         # Compare to in-sample selection
-        print("=" * 80)
-        print("IN-SAMPLE VS OUT-OF-SAMPLE COMPARISON")
-        print("=" * 80)
-        print(f"\nIn-Sample Selection: {optimal_scoring_method} + {optimal_allocation_strategy}")
+        logger.info("=" * 80)
+        logger.info("IN-SAMPLE VS OUT-OF-SAMPLE COMPARISON")
+        logger.info("=" * 80)
+        logger.info(
+            f"\nIn-Sample Selection: {optimal_scoring_method} + {optimal_allocation_strategy}"
+        )
 
         # Get IS performance for optimal strategy
         optimal_is = strategy_comparison_results[
@@ -1134,8 +1147,10 @@ def run_full_pipeline(
         )
 
         if optimal_oos is not None:
-            print(f"\n{'Metric':<25} {'In-Sample':>15} {'Out-of-Sample':>15} {'Degradation':>12}")
-            print("-" * 80)
+            logger.info(
+                f"\n{'Metric':<25} {'In-Sample':>15} {'Out-of-Sample':>15} {'Degradation':>12}"
+            )
+            logger.info("-" * 80)
 
             sharpe_change = (
                 (optimal_oos["sharpe_oos"] - optimal_is["sharpe"]) / optimal_is["sharpe"] * 100
@@ -1149,17 +1164,17 @@ def run_full_pipeline(
                 (optimal_oos["ann_vol_oos"] - optimal_is["ann_vol"]) / optimal_is["ann_vol"] * 100
             )
 
-            print(
+            logger.info(
                 f"{'Sharpe Ratio':<25} {optimal_is['sharpe']:>15.3f} {optimal_oos['sharpe_oos']:>15.3f} {sharpe_change:>11.1f}%"
             )
-            print(
+            logger.info(
                 f"{'Ann. Return (%)':<25} {optimal_is['ann_return']:>15.2f} {optimal_oos['ann_return_oos']:>15.2f} {return_change:>11.1f}%"
             )
-            print(
+            logger.info(
                 f"{'Ann. Volatility (%)':<25} {optimal_is['ann_vol']:>15.2f} {optimal_oos['ann_vol_oos']:>15.2f} {vol_change:>11.1f}%"
             )
 
-            print("\nAssessment:")
+            logger.info("\nAssessment:")
             sharpe_deg = abs(sharpe_change)
             if sharpe_deg < 15:
                 assessment = "EXCELLENT - Minimal degradation"
@@ -1169,9 +1184,9 @@ def run_full_pipeline(
                 assessment = "ACCEPTABLE - Some overfitting"
             else:
                 assessment = "CONCERNING - Severe degradation"
-            print(f"  {assessment} (Sharpe degradation: {sharpe_deg:.1f}%)")
+            logger.info(f"  {assessment} (Sharpe degradation: {sharpe_deg:.1f}%)")
 
-    print("=" * 80)
+    logger.info("=" * 80)
 
     # =============================================================
     # 9. Generate QuantStats HTML Reports\n
@@ -1179,9 +1194,9 @@ def run_full_pipeline(
 
     # Note: Uses EVALUATION_SCOPE from Section 7 (must run Section 7 first)\n
 
-    print("=" * 80)
-    print("GENERATING QUANTSTATS HTML REPORTS")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("GENERATING QUANTSTATS HTML REPORTS")
+    logger.info("=" * 80)
 
     # Map allocation strategy codes to names
     ALLOCATION_STRATEGY_NAMES = {
@@ -1204,17 +1219,17 @@ def run_full_pipeline(
                     "portfolio_returns": portfolio_returns_oos,
                 }
             ]
-        print("\nScope: OPTIMAL strategy (1 report)")
+        logger.info("\nScope: OPTIMAL strategy (1 report)")
     elif EVALUATION_SCOPE == "top5":
         if "oos_results_df" not in locals():
             raise ValueError("Section 7 must be run with EVALUATION_SCOPE='top5' or 'all' first")
         strategies_to_output = oos_results_df.nlargest(5, "sharpe_oos").to_dict("records")
-        print(f"\nScope: TOP 5 strategies ({len(strategies_to_output)} reports)")
+        logger.info(f"\nScope: TOP 5 strategies ({len(strategies_to_output)} reports)")
     elif EVALUATION_SCOPE == "all":
         if "oos_results_df" not in locals():
             raise ValueError("Section 7 must be run with EVALUATION_SCOPE='all' first")
         strategies_to_output = oos_results_df.to_dict("records")
-        print(f"\nScope: ALL strategies ({len(strategies_to_output)} reports)")
+        logger.info(f"\nScope: ALL strategies ({len(strategies_to_output)} reports)")
     else:
         raise ValueError(
             f"Invalid EVALUATION_SCOPE: {EVALUATION_SCOPE}. Use 'optimal', 'top5', or 'all'"
@@ -1299,16 +1314,16 @@ def run_full_pipeline(
         )
 
     # Summary
-    print("=" * 80)
-    print("REPORTS GENERATED")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("REPORTS GENERATED")
+    logger.info("=" * 80)
 
     for idx_rep, rep in enumerate(generated_reports, 1):
-        print(f"\n{idx_rep}. {rep['strategy']}")
-        print(f"   Daily:   {rep['daily']}")
-        print(f"   Monthly: {rep['monthly']}")
+        logger.info(f"\n{idx_rep}. {rep['strategy']}")
+        logger.info(f"   Daily:   {rep['daily']}")
+        logger.info(f"   Monthly: {rep['monthly']}")
 
-    print(
+    logger.info(
         f"\nTotal: {len(generated_reports)} strategies × 2 frequencies = {len(generated_reports)*2} reports"
     )
-    print("=" * 80)
+    logger.info("=" * 80)

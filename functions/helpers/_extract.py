@@ -1,7 +1,10 @@
 import datetime as dt
+import logging
 import os
 import shutil
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def list_runs(base_dir: str) -> List[str]:
@@ -139,7 +142,7 @@ def make_run_folder(
             stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
             out_dir_name = f"run_{stamp}"
             reuse = False
-            print(
+            logger.info(
                 "[warn] make_run_folder: 'last' is not supported in S3 mode; "
                 "creating a new run folder instead."
             )

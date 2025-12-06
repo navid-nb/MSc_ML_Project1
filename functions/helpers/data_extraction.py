@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any, Dict, List, Tuple
 
@@ -10,6 +11,8 @@ from functions.helpers._sql import (
     extract_artifacts,
     wrds_connect,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def wrds_extract_raw(
@@ -59,12 +62,9 @@ def wrds_extract_raw(
     if s3_bucket and input_prefix:
         prefix_clean = input_prefix.strip("/")
         run_dir = f"s3://{s3_bucket}/{prefix_clean}" if prefix_clean else f"s3://{s3_bucket}"
-        print(f"[info] Using S3 artifacts from: {run_dir}")
+        logger.info(f"[info] Using S3 artifacts from: {run_dir}")
 
-        produced = {
-            parq: f"{run_dir}/{parq}"
-            for _, parq in artifacts
-        }
+        produced = {parq: f"{run_dir}/{parq}" for _, parq in artifacts}
 
         return {
             "run_folder": run_dir,
@@ -74,7 +74,7 @@ def wrds_extract_raw(
 
     ensure_dir(base_dir)
     run_dir, run_name, reuse = make_run_folder(base_dir, use_run)
-    print(f"[info] Using run folder: {run_name} (reuse={reuse})")
+    logger.info(f"[info] Using run folder: {run_name} (reuse={reuse})")
 
     if not reuse:
         conn = None
@@ -89,7 +89,7 @@ def wrds_extract_raw(
                 chunk_size=chunk_size,
                 force=True,
             )
-            print("[info] Extraction complete (full refresh).")
+            logger.info("[info] Extraction complete (full refresh).")
         except Exception:
             safe_delete_dir(run_dir, base_dir)
             raise
@@ -98,7 +98,9 @@ def wrds_extract_raw(
                 conn.close()
     else:
         assert_artifacts_present(run_dir, artifacts)
-        print("[info] Reuse mode: all required Parquet files are present. No extraction performed.")
+        logger.info(
+            "[info] Reuse mode: all required Parquet files are present. No extraction performed."
+        )
 
     produced = {
         parq: os.path.join(run_dir, parq)
@@ -153,7 +155,7 @@ def common_features_extract(
         data = yf.download(ticker, start=start_date, end=end_date, progress=False, auto_adjust=True)
 
         if data.empty:
-            print(f"Warning: No data returned for {ticker}")
+            logger.info(f"Warning: No data returned for {ticker}")
             continue
 
         # Flatten MultiIndex columns: e.g. (Close, ^VIX) -> comm_^VIX_close
@@ -172,5 +174,5 @@ def common_features_extract(
     # Save to Parquet
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     df.to_parquet(output_path, index=False)
-    print(f"yfinance downloaded data for {tickers}")
-    print(f"yfinance data saved to {output_path}")
+    logger.info(f"yfinance downloaded data for {tickers}")
+    logger.info(f"yfinance data saved to {output_path}")

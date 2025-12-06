@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Dict, List, Tuple
 
@@ -5,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 pd.set_option("display.max_columns", None)
+logger = logging.getLogger(__name__)
 
 
 def parquet_to_df(artifacts: Dict[str, str], name: str) -> pd.DataFrame:
@@ -310,14 +312,14 @@ def pre_qa_dsf(dsf: pd.DataFrame) -> None:
         raise ValueError("dsf: cfacshr < 0 (unexpected).")
 
     if (dsf["cfacpr"] == 0).any():  # noqa
-        print("[warn] dsf: some rows have zero cfacpr.")
+        logger.info("[warn] dsf: some rows have zero cfacpr.")
     if (dsf["cfacshr"] == 0).any():  # noqa
-        print("[warn] dsf: some rows have zero cfacshr.")
+        logger.info("[warn] dsf: some rows have zero cfacshr.")
 
     n_neg = int((dsf["prc"] < 0).sum())
     if n_neg:
         pct = round(n_neg / max(len(dsf), 1) * 100, 2)
-        print(f"[warn] dsf: {n_neg:,} rows have negative prices ({pct}%).")
+        logger.info(f"[warn] dsf: {n_neg:,} rows have negative prices ({pct}%).")
 
     check_key_dupes(dsf, ["permno", "date"], "dsf")
 
@@ -345,7 +347,7 @@ def _handle_zero_cfa_factors(df: pd.DataFrame, grouper) -> pd.DataFrame:
         for permno, group in grouper
         if (group["cfacpr"] == 0).any() or (group["cfacshr"] == 0).any()  # noqa
     ]
-    print(
+    logger.info(
         f"[info] Removed {len(removed_permnos)} permnos(companies) for having zero in cfacpr or cfacshr"
     )
 
@@ -378,7 +380,7 @@ def _handle_negative_price(
         group_len = len(group)
         if neg_count > max_neg_price_pct * group_len:
             removed_permnos.append(permno)
-    print(
+    logger.info(
         f"[info] Removed {len(removed_permnos)} permnos(companies) for exceeding the threshold of negative prices"
     )
     filtered_df = df[~df.index.get_level_values("permno").isin(removed_permnos)].copy()
@@ -457,7 +459,7 @@ def pre_qa_stocknames(sn: pd.DataFrame) -> None:
         bad = (sn["nameenddt"].notna()) & (sn["namedt"] > sn["nameenddt"])
         if bad.any():
             n = int(bad.sum())
-            print(f"[warn] stocknames: {n:,} rows have namedt > nameenddt.")
+            logger.info(f"[warn] stocknames: {n:,} rows have namedt > nameenddt.")
 
     # overlap warning
     sn_lite = sn.copy()
@@ -492,7 +494,7 @@ def pre_qa_stocknames(sn: pd.DataFrame) -> None:
             overlaps += 1
 
     if overlaps:
-        print(
+        logger.info(
             f"[warn] stocknames: {overlaps} permno have overlapping name windows; "
             f"as-of join will pick the record with the latest namedt per (permno,date)."
         )
@@ -592,7 +594,7 @@ def post_stockname_join_qa_cleaning(df: pd.DataFrame, remove_unclean_permnos: bo
     if "ticker" in df.columns:
         null_ticker_rate = float(df["ticker"].isna().mean())
         if null_ticker_rate > 0:
-            print(
+            logger.info(
                 f"[info] df_prices: {null_ticker_rate:.2%} rows lack ticker mapping on that date."
             )
             if remove_unclean_permnos:
@@ -601,23 +603,23 @@ def post_stockname_join_qa_cleaning(df: pd.DataFrame, remove_unclean_permnos: bo
                 )
                 mask = ~df.index.get_level_values("permno").isin(unclean_permnos)
                 df = df.loc[mask].copy()
-                print(
+                logger.info(
                     f"[info] Removed {len(unclean_permnos)} permnos with null ticker rows: {unclean_permnos}"
                 )
                 new_null_ticker_rate = float(df["ticker"].isna().mean())
-                print(
+                logger.info(
                     f"[info] df_prices:after cleaning, {new_null_ticker_rate:.2%} rows lack ticker mapping on that date."
                 )
 
     if "adj_prc" in df.columns:
         near_zero = int((df["adj_prc"].abs() <= 1e-8).sum())
         if near_zero:
-            print(f"[warn] df_prices: {near_zero:,} rows with ~0 adjusted price.")
+            logger.info(f"[warn] df_prices: {near_zero:,} rows with ~0 adjusted price.")
 
     if "adj_mktcap" in df.columns:
         neg_cap = int((df["adj_mktcap"] < 0).sum())
         if neg_cap:
-            print(f"[warn] df_prices: {neg_cap:,} rows with negative market cap.")
+            logger.info(f"[warn] df_prices: {neg_cap:,} rows with negative market cap.")
     return df
 
 
@@ -648,23 +650,23 @@ def pre_qa_ff(ff: pd.DataFrame) -> None:
             n_inf = np.isinf(ff[col]).sum()
             n_nan = ff[col].isna().sum()
             if n_inf:
-                print(f"[warn] ff: {col} has {n_inf:,} ±inf values.")
+                logger.info(f"[warn] ff: {col} has {n_inf:,} ±inf values.")
             if n_nan:
                 share = float(n_nan / len(ff))
-                print(f"[info] ff: {share:.2%} NaN in {col}.")
+                logger.info(f"[info] ff: {share:.2%} NaN in {col}.")
 
     # Magnitude sanity (daily factors rarely exceed ±50% in absolute terms)
     for col in ["mktrf", "smb", "hml", "umd"]:
         if col in ff.columns:
             extreme = (ff[col].abs() > 0.50).sum()
             if extreme:
-                print(f"[warn] ff: {extreme:,} rows with |{col}| > 50%.")
+                logger.info(f"[warn] ff: {extreme:,} rows with |{col}| > 50%.")
 
     # Risk-free rate sanity (daily ~ few bps; warn if absurd)
     if "rf" in ff.columns:
         extreme_rf = (ff["rf"].abs() > 0.05).sum()
         if extreme_rf:
-            print(f"[warn] ff: {extreme_rf:,} rows with |rf| > 5% (daily).")
+            logger.info(f"[warn] ff: {extreme_rf:,} rows with |rf| > 5% (daily).")
 
 
 def join_prices_with_ff(df_prices: pd.DataFrame, ff: pd.DataFrame) -> pd.DataFrame:
@@ -729,7 +731,7 @@ def post_join_qa_prices_with_ff(df: pd.DataFrame) -> None:
         if col in df.columns:
             miss = float(df[col].isna().mean())
             if miss:
-                print(f"[info] df_prices_ff: {miss:.2%} missing {col}.")
+                logger.info(f"[info] df_prices_ff: {miss:.2%} missing {col}.")
 
 
 def pre_qa_ibes_statsumu(ibes: pd.DataFrame) -> None:
@@ -761,7 +763,7 @@ def pre_qa_ibes_statsumu(ibes: pd.DataFrame) -> None:
     grp = ibes.groupby(["official_ticker", "stat_date"], dropna=False).size()
     multi = int((grp > 1).sum())
     if multi:
-        print(
+        logger.info(
             f"[info] ibes_stats: {multi:,} (official_ticker, stat_date) pairs have >1 row "
             f"(multiple horizons/periodicities). Will collapse before join."
         )
@@ -852,7 +854,7 @@ def join_prices_with_ibes(df_prices: pd.DataFrame, ibes_daily: pd.DataFrame) -> 
 
     pre_rows = int(df_tmp.shape[0])
     if "ticker" not in df_tmp.columns:
-        print("[warn] df_prices has no 'ticker' column; IBES match will be empty.")
+        logger.info("[warn] df_prices has no 'ticker' column; IBES match will be empty.")
     if "official_ticker" not in ibes_daily.columns:
         raise AssertionError("ibes_daily lacks 'official_ticker' after preparation.")
 
@@ -902,7 +904,7 @@ def post_join_qa_prices_with_ibes(df: pd.DataFrame) -> None:
         if col in df.columns:
             miss = float(df[col].isna().mean())
             if miss > 0:
-                print(f"[info] df_prices(+ibes): {miss:.1%} missing in {col}.")
+                logger.info(f"[info] df_prices(+ibes): {miss:.1%} missing in {col}.")
 
 
 def pre_qa_ibes_actu(ibes_act: pd.DataFrame) -> None:
@@ -925,7 +927,7 @@ def pre_qa_ibes_actu(ibes_act: pd.DataFrame) -> None:
 
     multi = (ibes_act.groupby(["oftic", "anndats"], dropna=False).size() > 1).sum()
     if multi:
-        print(
+        logger.info(
             f"[info] ibes_act: {multi:,} (oftic, anndats) pairs have >1 row "
             f"(periodicity/dup loads). Will collapse before join."
         )
@@ -1011,7 +1013,7 @@ def join_prices_with_ibes_actu(
     pre_rows = int(left.shape[0])
 
     if "ticker" not in left.columns:
-        print("[warn] df_prices has no 'ticker'; IBES actuals match will be empty.")
+        logger.info("[warn] df_prices has no 'ticker'; IBES actuals match will be empty.")
 
     merged = left.merge(
         ibes_act_daily,
@@ -1050,13 +1052,13 @@ def post_join_qa_prices_with_ibes_actu(df: pd.DataFrame) -> None:
 
     if "act_value" in df.columns:
         miss = float(df["act_value"].isna().mean())
-        print(f"[info] df_prices(+ibes_act): {miss:.1%} missing in act_value.")
+        logger.info(f"[info] df_prices(+ibes_act): {miss:.1%} missing in act_value.")
 
     # Optional: counts by announcement time bucket (if present)
     if "anntims" in df.columns:
         vc = df["anntims"].dropna().astype(str).str.lower().value_counts().head(5)
         if not vc.empty:
-            print(f"[info] ibes_act announcement time top values:\n{vc}")
+            logger.info(f"[info] ibes_act announcement time top values:\n{vc}")
 
 
 def filter_tickers(stock_names: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:

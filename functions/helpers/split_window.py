@@ -1,4 +1,7 @@
+import logging
 import random
+
+logger = logging.getLogger(__name__)
 
 
 def split_train_and_test(df, split_pct, random_state):
@@ -20,10 +23,10 @@ def split_train_and_test(df, split_pct, random_state):
     trading_days_count = len(dates_all)
     n_rows = df.shape[0]
 
-    print("Total Data:")
-    print(f"  Dates: {trading_days_count} trading days")
-    print(f"  Period: {dates_all.min().date()} to {dates_all.max().date()}")
-    print(f"  Rows: {n_rows:,} (stocks × dates)")
+    logger.info("Total Data:")
+    logger.info(f"  Dates: {trading_days_count} trading days")
+    logger.info(f"  Period: {dates_all.min().date()} to {dates_all.max().date()}")
+    logger.info(f"  Rows: {n_rows:,} (stocks × dates)")
 
     # split: in-sample (split_pct%) vs out-of-sample (1-split_pct%)
     split_idx = int(trading_days_count * split_pct)
@@ -37,20 +40,22 @@ def split_train_and_test(df, split_pct, random_state):
     # split date (boundary between in-sample and out-of-sample)
     split_date = dates_out_sample[0]
 
-    print("\nData Split:")
-    print("   In-Sample (Development Set):")
-    print(f"   Period: {ins_dates.min().date()} to {ins_dates.max().date()}")
-    print(f"   Dates: {len(ins_dates)} days ({len(ins_dates) / trading_days_count * 100:.1f}%)")
-    print("   Purpose: feature selection, hyperparameter tuning, rolling CV")
+    logger.info("\nData Split:")
+    logger.info("   In-Sample (Development Set):")
+    logger.info(f"   Period: {ins_dates.min().date()} to {ins_dates.max().date()}")
+    logger.info(
+        f"   Dates: {len(ins_dates)} days ({len(ins_dates) / trading_days_count * 100:.1f}%)"
+    )
+    logger.info("   Purpose: feature selection, hyperparameter tuning, rolling CV")
 
-    print("\n   Out-Of-Sample (Test Set):")
-    print(f"   Period: {dates_out_sample.min().date()} to {dates_out_sample.max().date()}")
-    print(
+    logger.info("\n   Out-Of-Sample (Test Set):")
+    logger.info(f"   Period: {dates_out_sample.min().date()} to {dates_out_sample.max().date()}")
+    logger.info(
         f"   Dates: {len(dates_out_sample)} days ({len(dates_out_sample) / trading_days_count * 100:.1f}%)"
     )
-    print("   Purpose: final performance evaluation only")
+    logger.info("   Purpose: final performance evaluation only")
 
-    print(f"\nSplit Date: {split_date.date()}")
+    logger.info(f"\nSplit Date: {split_date.date()}")
 
     return ins_dates, dates_out_sample, split_date
 
@@ -89,17 +94,17 @@ def split_rolling_window(
     ) // step_size + 1
 
     # Print configuration
-    print("Rolling Window Configuration (In-Sample Only):")
-    print(
+    logger.info("Rolling Window Configuration (In-Sample Only):")
+    logger.info(
         f"   Training window: {ins_training_window_size} days (~{ins_training_window_size / 252:.1f} years, {ins_training_window_size / ins_window_size * 100:.1f}% of in-sample)"
     )
-    print(
+    logger.info(
         f"   Validation window: {ins_validation_window_size} days (~{ins_validation_window_size / 252:.1f} years, {ins_validation_window_size / ins_window_size * 100:.1f}% of in-sample)"
     )
-    print(f"   Step size: {step_size} days (~{step_size / 5:.1f} weeks)")
-    print(f"   Target folds: {target_folds_count}")
-    print(f"   Actual folds: {actual_folds}")
-    print(
+    logger.info(f"   Step size: {step_size} days (~{step_size / 5:.1f} weeks)")
+    logger.info(f"   Target folds: {target_folds_count}")
+    logger.info(f"   Actual folds: {actual_folds}")
+    logger.info(
         f"   Total validation observations: {actual_folds * ins_validation_window_size} (across {actual_folds} overlapping folds)"
     )
 
