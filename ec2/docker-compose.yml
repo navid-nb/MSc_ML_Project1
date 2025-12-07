@@ -11,6 +11,7 @@ services:
       - -w
       - /opt/dagster/dagster_home/workspace.yaml
     container_name: docker_example_webserver
+    restart: always
     ports:
       - '3000:3000'
     environment:
